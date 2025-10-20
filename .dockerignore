@@ -1,0 +1,115 @@
+# =============================================================================
+# Docker Ignore File
+# Excludes unnecessary files from Docker build context for faster builds
+# =============================================================================
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# Linting
+.ruff_cache/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Environment files (these should be set via docker-compose or k8s)
+.env
+.env.*
+*.env
+
+# Logs
+logs/
+*.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Development tools
+.pre-commit-config.yaml
+.deepsource.toml
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Docker files (no need to include these in the image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Makefile
+Makefile
+
+# Test files
+tests/
+test_*/
+*_test.py
+
+# Locust performance testing
+locustfile.py
+
+# Alembic (migrations are copied separately if needed)
+# Uncomment if you don't want migrations in the image
+# db_migrations/
+
+# Node modules (if any frontend assets)
+node_modules/
+
+# OS-specific files
+Thumbs.db
+.DS_Store

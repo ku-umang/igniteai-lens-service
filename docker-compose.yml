@@ -1,0 +1,81 @@
+# =============================================================================
+# Docker Compose Configuration for IgniteLens Backend Services
+# =============================================================================
+# Services included:
+# - app: FastAPI application
+# - postgres: PostgreSQL database
+# - redis: Redis cache
+# - jaeger: Jaeger all-in-one for distributed tracing
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Application Service - FastAPI Backend
+  # ===========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: ignitelens-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # Application port
+      - "8001:8001"  # Metrics port
+    environment:
+      # Application settings
+      APP_NAME: "IgniteLens Backend Services"
+      APP_VERSION: "0.1.0"
+      ENVIRONMENT: "development"
+      DEBUG: "false"
+
+      # Server configuration
+      HOST: "0.0.0.0"
+      PORT: "8000"
+
+      # Database configuration - use Docker service names
+      DATABASE_URL: "postgresql+asyncpg://ignitelens_user:ignitelens_password@postgres:5432/ignitelens"
+      DATABASE_ECHO: "false"
+
+      # Redis configuration
+      REDIS_URL: "redis://redis:6379/1"
+
+      # Logging configuration
+      LOG_LEVEL: "INFO"
+      LOG_FORMAT: "json"
+
+      # OpenTelemetry & Observability
+      OTEL_SERVICE_NAME: "ignitelens-backend"
+      OTEL_SERVICE_VERSION: "0.1.0"
+
+      # Jaeger tracing configuration
+      JAEGER_ENABLED: "true"
+      JAEGER_LOGS_ENABLED: "false"
+      JAEGER_AGENT_HOST: "jaeger"
+      JAEGER_AGENT_PORT: "6831"
+      JAEGER_COLLECTOR_ENDPOINT: "http://jaeger:14268/api/traces"
+      JAEGER_GRPC_ENDPOINT: "http://jaeger:4317"
+      TRACE_SAMPLING_RATE: "1.0"
+
+      # Prometheus metrics
+      METRICS_PORT: "8001"
+      ENABLE_METRICS: "true"
+
+    networks:
+      - aipal-platform-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      # Mount logs directory if needed
+      - ./logs:/app/logs
+
+# =============================================================================
+# Networks Configuration
+# =============================================================================
+networks:
+  aipal-platform-network:
+    external: true  # Use existing external network shared across services
