@@ -42,6 +42,33 @@ class PlatformClient:
         if self._client:
             await self._client.aclose()
 
+    async def retrieve_from_knowledge(self, query: str, datasource_id: str, tenant_id: str) -> str:
+        """Retrieve information from knowledge base.
+
+        Args:
+            query: Query to ask
+            datasource_id: Datasource identifier
+            tenant_id: Tenant identifier
+
+        """
+        if not self._client:
+            raise RuntimeError("PlatformClient must be used as async context manager")
+
+        url = "/retrieval/retrieve"
+        headers = {
+            "X-Tenant-ID": tenant_id,
+            "Content-Type": "application/json",
+        }
+
+        data = {
+            "query": query,
+            "datasource_id": datasource_id,
+        }
+
+        response = await self._client.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()
+
     async def get_llm_config(self, tenant_id: UUID, llm_config_id: UUID) -> LLMConfigurationResponse:
         """Fetch LLM config details from microservice.
 

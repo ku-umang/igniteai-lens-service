@@ -28,6 +28,42 @@ async def get_session_service(
     return SessionService(db_session=db_session)
 
 
+async def verify_session_ownership_helper(
+    session_id: UUID,
+    tenant_id: UUID,
+    user_id: UUID,
+    session_service: SessionService,
+) -> Session:
+    """Helper to verify session ownership.
+
+    Args:
+        session_id: Session identifier
+        tenant_id: Tenant ID
+        user_id: User ID
+        session_service: Session service instance
+
+    Returns:
+        Session: Session instance if ownership verified
+
+    Raises:
+        SessionNotFoundError: If session not found
+        SessionAccessDeniedError: If session doesn't belong to user
+
+    """
+    # Get the session
+    session = await session_service.get_session(session_id, tenant_id)
+
+    # Verify ownership
+    if session.user_id != user_id:
+        raise SessionAccessDeniedError(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            message="You do not have permission to access this session",
+        )
+
+    return session
+
+
 async def verify_session_ownership(
     session_id: UUID,
     request: Request,
@@ -52,15 +88,4 @@ async def verify_session_ownership(
         SessionAccessDeniedError: If session doesn't belong to user
 
     """
-    # Get the session
-    session = await session_service.get_session(session_id, tenant_id)
-
-    # Verify ownership
-    if session.user_id != user_id:
-        raise SessionAccessDeniedError(
-            session_id=session_id,
-            tenant_id=tenant_id,
-            message="You do not have permission to access this session",
-        )
-
-    return session
+    return await verify_session_ownership_helper(session_id, tenant_id, user_id, session_service)

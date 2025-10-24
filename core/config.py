@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Server
     HOST: str = Field(default="0.0.0.0")
-    PORT: int = Field(default=8000)
+    PORT: int = Field(default=8002)
 
     # Database
     DATABASE_URL: str = Field(
@@ -43,7 +43,9 @@ class Settings(BaseSettings):
 
     # LLM
     PORTKEY_API_KEY: str = Field(default="")
-    PORTKEY_DEFAULT_KEY: str = Field(default="")
+    PORTKEY_VIRTUAL_KEY: str = Field(default="")
+    LLM_MODEL: str = Field(default="gpt-4")
+    LLM_TEMPERATURE: float = Field(default=0.7, ge=0.0, le=2.0)
 
     # Platform Microservice
     PLATFORM_SERVICE_URL: str = Field(default="http://localhost:8000/api/v1")
@@ -77,7 +79,7 @@ class Settings(BaseSettings):
     TRACE_SAMPLING_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # Prometheus
-    METRICS_PORT: int = Field(default=8001)
+    METRICS_PORT: int = Field(default=8003)
     ENABLE_METRICS: bool = Field(default=True)
 
     # Security Headers
@@ -113,7 +115,7 @@ class Settings(BaseSettings):
     CORS_EXPOSE_HEADERS: List[str] = Field(default=["X-Correlation-ID", "X-Trace-ID"])
     CORS_MAX_AGE: int = Field(default=86400)  # 24 hours
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore")
 
 
 settings = Settings()

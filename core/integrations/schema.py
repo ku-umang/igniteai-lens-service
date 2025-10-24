@@ -76,3 +76,53 @@ class LLMConfigurationResponse(BaseModel):
     updated_by: UUID
 
     model_config = ConfigDict(from_attributes=True, json_encoders={datetime: datetime.isoformat, UUID: str})
+
+
+class ColumnResultSchema(BaseModel):
+    """Schema for a single column result."""
+
+    content: str = Field(..., description="Column description text")
+    score: float = Field(..., description="Relevance score (0-1)", ge=0, le=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Column metadata")
+
+
+class RelatedTableSchema(BaseModel):
+    """Schema for a related table with relationship context."""
+
+    table_name: str = Field(..., description="Table display name")
+    qualified_name: str = Field(..., description="Fully qualified table name")
+    relationship_type: str = Field(..., description="Type of relationship (foreign_key, reverse_foreign_key)")
+    source_table: str = Field(..., description="Source table in relationship")
+    target_table: str = Field(..., description="Target table in relationship")
+    column_mappings: List[Dict[str, str]] = Field(default_factory=list, description="Column mappings for JOIN")
+    join_hint: str = Field(..., description="SQL JOIN hint")
+
+
+class TableResultSchema(BaseModel):
+    """Schema for a table result with nested columns."""
+
+    content: str = Field(..., description="Table description text")
+    score: float = Field(..., description="Relevance score (0-1)", ge=0, le=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Table metadata")
+    related_tables: List[RelatedTableSchema] = Field(default_factory=list, description="Related tables via FK relationships")
+    columns: List[ColumnResultSchema] = Field(default_factory=list, description="Relevant columns for this table")
+
+
+class ExampleQuerySchema(BaseModel):
+    """Schema for an example query result."""
+
+    content: str = Field(..., description="Example query text")
+    score: float = Field(..., description="Relevance score (0-1)", ge=0, le=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Example query metadata")
+
+
+class RetrievalResponse(BaseModel):
+    """Response schema for hierarchical hybrid retrieval."""
+
+    tables: List[TableResultSchema] = Field(..., description="Retrieved tables with nested columns")
+    example_queries: List[ExampleQuerySchema] = Field(default_factory=list, description="Example queries for reference")
+    query: str = Field(..., description="Original query")
+    total_tables: int = Field(..., description="Total number of tables returned")
+    total_columns: int = Field(..., description="Total number of columns across all tables")
+    total_examples: int = Field(..., description="Total number of example queries returned")
+    elapsed_time: float = Field(..., description="Total retrieval time in seconds")

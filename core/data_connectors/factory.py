@@ -183,8 +183,6 @@ def create_connector(
 
     # Create connector instance
     try:
-        # Type checker doesn't know that concrete connectors override __init__
-        # to not require connector_key (they use their CONNECTOR_KEY constant)
         connector = connector_class(  # type: ignore[call-arg]
             datasource_id=datasource.id,
             tenant_id=datasource.tenant_id,

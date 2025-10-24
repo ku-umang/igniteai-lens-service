@@ -39,8 +39,10 @@ dependencies = [
     "cryptography>=46.0.2",
     "passlib[bcrypt]>=1.7.4",
     "portkey-ai>=2.0.0",
-    "langgraph>=1.0.0",
     "pandas>=2.3.3",
+    "langgraph>=1.0.1",
+    "langchain-openai>=1.0.1",
+    "sqlglot>=27.28.1",
 ]
 
 [tool.ruff]

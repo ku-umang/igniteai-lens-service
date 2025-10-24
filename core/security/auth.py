@@ -8,7 +8,7 @@ from fastapi import HTTPException, Request, status
 from core.config import settings
 
 # Default tenant ID for development
-DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
+DEFAULT_TENANT_ID = UUID("f81d4fae-7dec-11d0-a765-00a0c91e6bf7")
 
 
 async def get_current_tenant_id(request: Request) -> UUID:
@@ -85,7 +85,7 @@ async def get_current_user_id(request: Request) -> UUID:
 
     if settings.ENVIRONMENT == Environment.DEVELOPMENT:
         # Default development user
-        return UUID("00000000-0000-0000-0000-000000000002")
+        return UUID("f81d4fae-7dec-11d0-a765-00a0c91e6bf6")
 
     # In production, user ID is required (should come from JWT)
     raise HTTPException(
