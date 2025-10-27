@@ -1,4 +1,4 @@
-"""API schemas for MAC-SQL agent endpoints."""
+"""API schemas for agent endpoints."""
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -19,7 +19,7 @@ class GenerateSQLRequest(BaseModel):
     max_history_messages: int = Field(default=10, description="Max conversation history to include", ge=0, le=50)
 
 
-class ExecuteSQLRequest(BaseModel):
+class AgentRunRequest(BaseModel):
     """Request schema for SQL generation and execution."""
 
     question: str = Field(..., description="Natural language question", min_length=1, max_length=1000)
@@ -66,7 +66,7 @@ class GenerateSQLResponse(BaseModel):
     error_message: Optional[str] = Field(None, description="Error message if failed")
 
 
-class ExecuteSQLResponse(BaseModel):
+class AgentResponse(BaseModel):
     """Response schema for SQL execution."""
 
     sql: str = Field(..., description="Generated SQL query")

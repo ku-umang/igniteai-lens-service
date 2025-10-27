@@ -1,9 +1,3 @@
-"""Optimizer agent for MAC-SQL workflow.
-
-The Optimizer agent rewrites the user's question using conversation history
-to provide better context for downstream agents (especially schema retrieval).
-"""
-
 import json
 import time
 from typing import Any, Dict
@@ -15,7 +9,7 @@ from core.agents.prompts.optimizer import (
     OPTIMIZER_SYSTEM_PROMPT,
     format_optimizer_prompt,
 )
-from core.agents.sql.state import MACSSQLState
+from core.agents.sql.state import AgentState
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -24,7 +18,7 @@ tracer = trace.get_tracer(__name__)
 
 
 class OptimizerAgent:
-    """Optimizer agent for question optimization in MAC-SQL workflow.
+    """Optimizer agent for question optimization in workflow.
 
     This agent:
     1. Analyzes the user's current question
@@ -37,11 +31,11 @@ class OptimizerAgent:
         """Initialize the Optimizer agent."""
         self.llm = llm_config.get_llm()
 
-    async def optimize_question(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def optimize_question(self, state: AgentState) -> Dict[str, Any]:
         """Optimize the user's question using conversation history.
 
         Args:
-            state: Current MAC-SQL workflow state
+            state: Current workflow state
 
         Returns:
             Updated state dict with optimized_question populated

@@ -1,9 +1,3 @@
-"""Decomposer agent for MAC-SQL workflow.
-
-The Decomposer agent breaks down the user's question into logical query steps
-and creates a query plan that can be converted to SQL.
-"""
-
 import json
 from typing import Any, Dict
 
@@ -14,7 +8,7 @@ from core.agents.prompts.decomposer import (
     DECOMPOSER_SYSTEM_PROMPT,
     format_decomposer_prompt,
 )
-from core.agents.sql.state import MACSSQLState, QueryPlan
+from core.agents.sql.state import AgentState, QueryPlan
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -36,7 +30,7 @@ class DecomposerAgent:
         """Initialize the Decomposer agent."""
         self.llm = llm_config.get_llm()
 
-    async def decompose_query(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def decompose_query(self, state: AgentState) -> Dict[str, Any]:
         """Create a logical query plan for the user's question.
 
         Args:

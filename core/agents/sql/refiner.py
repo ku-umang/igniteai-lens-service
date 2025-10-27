@@ -1,9 +1,3 @@
-"""Refiner agent for MAC-SQL workflow.
-
-The Refiner agent converts the logical query plan into executable,
-optimized SQL code.
-"""
-
 import json
 import re
 from typing import Any, Dict
@@ -15,7 +9,7 @@ from core.agents.prompts.refiner import (
     REFINER_SYSTEM_PROMPT,
     format_refiner_prompt,
 )
-from core.agents.sql.state import GeneratedSQL, MACSSQLState
+from core.agents.sql.state import AgentState, GeneratedSQL
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -24,7 +18,7 @@ tracer = trace.get_tracer(__name__)
 
 
 class RefinerAgent:
-    """Refiner agent for SQL generation in MAC-SQL workflow.
+    """Refiner agent for SQL generation in workflow.
 
     This agent:
     1. Takes the logical query plan
@@ -37,11 +31,11 @@ class RefinerAgent:
         """Initialize the Refiner agent."""
         self.llm = llm_config.get_llm()
 
-    async def refine_to_sql(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def refine_to_sql(self, state: AgentState) -> Dict[str, Any]:
         """Generate executable SQL from query plan.
 
         Args:
-            state: Current MAC-SQL workflow state
+            state: Current workflow state
 
         Returns:
             Updated state dict with generated_sql populated
@@ -126,7 +120,7 @@ class RefinerAgent:
                     "current_step": "error",
                 }
 
-    def _extract_selected_schema(self, state: MACSSQLState) -> Dict[str, Any]:
+    def _extract_selected_schema(self, state: AgentState) -> Dict[str, Any]:
         """Extract selected schema from state.
 
         Args:

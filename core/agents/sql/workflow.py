@@ -1,9 +1,3 @@
-"""LangGraph workflow for MAC-SQL agent system.
-
-This module defines the workflow that orchestrates the MAC-SQL agents:
-Optimizer -> Selector -> Decomposer -> Refiner -> Executor
-"""
-
 import time
 from typing import Any, Dict
 
@@ -14,22 +8,22 @@ from core.agents.sql.decomposer import DecomposerAgent
 from core.agents.sql.optimizer import OptimizerAgent
 from core.agents.sql.refiner import RefinerAgent
 from core.agents.sql.selector import SelectorAgent
-from core.agents.sql.state import ExecutionResult, MACSSQLInput, MACSSQLOutput, MACSSQLState
+from core.agents.sql.state import AgentInput, AgentOutput, AgentState, ExecutionResult
 from core.integrations.platform_client import PlatformClient
 from core.logging import get_logger
-from core.services.sql.executor import SafeSQLExecutor
-from core.services.sql.validator import get_sql_validator
+from core.services.agent.executor import SafeSQLExecutor
+from core.services.agent.validator import get_sql_validator
 from core.utils.dialect_mapper import connector_key_to_dialect
 
 logger = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-class MACSSQLWorkflow:
-    """MAC-SQL workflow orchestrator using LangGraph."""
+class AgentWorkflow:
+    """Agent workflow orchestrator using LangGraph."""
 
     def __init__(self) -> None:
-        """Initialize the MAC-SQL workflow."""
+        """Initialize the Agent workflow."""
         self.optimizer = OptimizerAgent()
         self.selector = SelectorAgent()
         self.decomposer = DecomposerAgent()
@@ -44,7 +38,7 @@ class MACSSQLWorkflow:
 
         """
         # Create state graph
-        graph = StateGraph(MACSSQLState)
+        graph = StateGraph(AgentState)
 
         # Add nodes for each agent
         graph.add_node("optimizer", self._optimizer_node)
@@ -92,7 +86,7 @@ class MACSSQLWorkflow:
 
         return graph.compile()
 
-    async def _optimizer_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _optimizer_node(self, state: AgentState) -> Dict[str, Any]:
         """Optimizer agent node.
 
         Args:
@@ -104,7 +98,7 @@ class MACSSQLWorkflow:
         """
         return await self.optimizer.optimize_question(state)
 
-    async def _selector_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _selector_node(self, state: AgentState) -> Dict[str, Any]:
         """Selector agent node.
 
         Args:
@@ -116,7 +110,7 @@ class MACSSQLWorkflow:
         """
         return await self.selector.select_schema(state)
 
-    async def _decomposer_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _decomposer_node(self, state: AgentState) -> Dict[str, Any]:
         """Decomposer agent node.
 
         Args:
@@ -128,7 +122,7 @@ class MACSSQLWorkflow:
         """
         return await self.decomposer.decompose_query(state)
 
-    async def _refiner_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _refiner_node(self, state: AgentState) -> Dict[str, Any]:
         """Refiner agent node.
 
         Args:
@@ -140,7 +134,7 @@ class MACSSQLWorkflow:
         """
         return await self.refiner.refine_to_sql(state)
 
-    async def _validator_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _validator_node(self, state: AgentState) -> Dict[str, Any]:
         """Validator node.
 
         Args:
@@ -210,7 +204,7 @@ class MACSSQLWorkflow:
                 "current_step": "error",
             }
 
-    async def _executor_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _executor_node(self, state: AgentState) -> Dict[str, Any]:
         """Executor node.
 
         Args:
@@ -308,7 +302,7 @@ class MACSSQLWorkflow:
                     "errors": [error_msg],
                 }
 
-    async def _visualizer_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _visualizer_node(self, state: AgentState) -> Dict[str, Any]:
         """Visualizer node to generate chart specifications.
 
         Args:
@@ -329,7 +323,7 @@ class MACSSQLWorkflow:
                 return {"current_step": "finalize"}
 
             # Import here to avoid circular dependencies
-            from core.services.visualization.visualizer_service import VisualizationService
+            from core.services.agent.visualization.visualizer_service import VisualizationService
 
             viz_service = VisualizationService()
 
@@ -363,7 +357,7 @@ class MACSSQLWorkflow:
             # Don't fail the workflow - continue without visualization
             return {"current_step": "finalize"}
 
-    async def _finalizer_node(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def _finalizer_node(self, state: AgentState) -> Dict[str, Any]:
         """Finalizer node to prepare output.
 
         Args:
@@ -385,7 +379,7 @@ class MACSSQLWorkflow:
             "current_step": "completed",
         }
 
-    def _route_after_validation(self, state: MACSSQLState) -> str:
+    def _route_after_validation(self, state: AgentState) -> str:
         """Route workflow after validation.
 
         Args:
@@ -404,7 +398,7 @@ class MACSSQLWorkflow:
         else:
             return "execute"
 
-    def _route_after_execution(self, state: MACSSQLState) -> str:
+    def _route_after_execution(self, state: AgentState) -> str:
         """Route workflow after execution.
 
         Args:
@@ -419,18 +413,18 @@ class MACSSQLWorkflow:
         else:
             return "visualize"
 
-    async def run(self, input_data: MACSSQLInput) -> MACSSQLOutput:
-        """Run the MAC-SQL workflow.
+    async def run(self, input_data: AgentInput) -> AgentOutput:
+        """Run the workflow.
 
         Args:
             input_data: Input parameters
 
         Returns:
-            MAC-SQL output
+            Agent output
 
         """
         with tracer.start_as_current_span(
-            "macsql_workflow.run",
+            "agent_workflow.run",
             attributes={
                 "question": input_data.question,
                 "datasource_id": str(input_data.datasource_id),
@@ -469,7 +463,7 @@ class MACSSQLWorkflow:
                     raise e
 
                 # Initialize state
-                initial_state = MACSSQLState(
+                initial_state = AgentState(
                     user_question=input_data.question,
                     datasource_id=input_data.datasource_id,
                     datasource=datasource,
@@ -486,9 +480,8 @@ class MACSSQLWorkflow:
                 # Run workflow
                 final_state_dict = await self.workflow.ainvoke(initial_state)
 
-                # Convert dict back to MACSSQLState object
                 # LangGraph returns state as dict, need to reconstruct
-                final_state = MACSSQLState(**final_state_dict)
+                final_state = AgentState(**final_state_dict)
 
                 # Build output
                 output = self._build_output(final_state)
@@ -498,7 +491,7 @@ class MACSSQLWorkflow:
                 span.set_attribute("success", output.success)
 
                 logger.info(
-                    "MAC-SQL workflow completed",
+                    "Agent workflow completed",
                     extra={
                         "success": output.success,
                         "execution_time_ms": execution_time,
@@ -509,11 +502,11 @@ class MACSSQLWorkflow:
                 return output
 
             except Exception as e:
-                logger.error("MAC-SQL workflow failed", extra={"error": str(e)})
+                logger.error("Agent workflow failed", extra={"error": str(e)})
                 span.set_attribute("error", True)
 
                 # Return error output
-                return MACSSQLOutput(
+                return AgentOutput(
                     sql="",
                     dialect="postgres",
                     data=None,
@@ -530,19 +523,19 @@ class MACSSQLWorkflow:
                     error_message=f"Workflow failed: {str(e)}",
                 )
 
-    def _build_output(self, state: MACSSQLState) -> MACSSQLOutput:
+    def _build_output(self, state: AgentState) -> AgentOutput:
         """Build output from final state.
 
         Args:
             state: Final workflow state
 
         Returns:
-            MAC-SQL output
+            Agent output
 
         """
         # Check if workflow completed successfully
         if state.current_step == "error" or state.errors:
-            return MACSSQLOutput(
+            return AgentOutput(
                 sql=state.generated_sql.sql if state.generated_sql else "",
                 dialect=state.generated_sql.dialect if state.generated_sql else "postgres",
                 data=None,
@@ -560,7 +553,7 @@ class MACSSQLWorkflow:
             )
 
         # Build successful output
-        output = MACSSQLOutput(
+        output = AgentOutput(
             sql=state.generated_sql.sql if state.generated_sql else "",
             dialect=state.generated_sql.dialect if state.generated_sql else "postgres",
             data=None,  # Will be set below if execution result available

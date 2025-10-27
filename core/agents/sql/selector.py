@@ -1,9 +1,3 @@
-"""Selector agent for MAC-SQL workflow.
-
-The Selector agent analyzes the user's question and retrieves relevant schema,
-then selects the minimal set of tables and columns needed to answer the question.
-"""
-
 import json
 import time
 from typing import Any, Dict
@@ -15,7 +9,7 @@ from core.agents.prompts.selector import (
     SELECTOR_SYSTEM_PROMPT,
     format_selector_prompt,
 )
-from core.agents.sql.state import MACSSQLState, SchemaContext
+from core.agents.sql.state import AgentState, SchemaContext
 from core.integrations.platform_client import PlatformClient
 from core.integrations.schema import RetrievalResponse
 from core.llm_config import llm_config
@@ -26,7 +20,7 @@ tracer = trace.get_tracer(__name__)
 
 
 class SelectorAgent:
-    """Selector agent for schema selection in MAC-SQL workflow.
+    """Selector agent for schema selection in workflow.
 
     This agent:
     1. Retrieves relevant schema from the platform service
@@ -38,11 +32,11 @@ class SelectorAgent:
         """Initialize the Selector agent."""
         self.llm = llm_config.get_llm()
 
-    async def select_schema(self, state: MACSSQLState) -> Dict[str, Any]:
+    async def select_schema(self, state: AgentState) -> Dict[str, Any]:
         """Select relevant schema for the user's question.
 
         Args:
-            state: Current MAC-SQL workflow state
+            state: Current workflow state
 
         Returns:
             Updated state dict with schema_context populated

@@ -1,9 +1,3 @@
-"""LangGraph state schema for MAC-SQL workflow.
-
-This module defines the state schema used by the MAC-SQL agent workflow.
-The state tracks the entire journey from user question to executable SQL.
-"""
-
 import operator
 from typing import Annotated, Any, Dict, List, Optional
 from uuid import UUID
@@ -75,8 +69,8 @@ class ChatMessage(BaseModel):
     sql: Optional[str] = Field(default=None, description="Generated SQL (if any)")
 
 
-class MACSSQLState(BaseModel):
-    """State schema for MAC-SQL workflow using LangGraph.
+class AgentState(BaseModel):
+    """State schema for Agent workflow using LangGraph.
 
     This state is passed between agents and tracks the complete workflow
     from question to SQL execution.
@@ -94,7 +88,7 @@ class MACSSQLState(BaseModel):
         default_factory=list,
         description="Recent conversation history for context-aware optimization",
     )
-    original_question: Optional[str] = Field(default=None, description="User's original raw question")
+
     optimized_question: Optional[str] = Field(
         default=None,
         description="Context-aware optimized question (after optimizer agent)",
@@ -136,14 +130,14 @@ class MACSSQLState(BaseModel):
     explain_mode: bool = Field(default=False, description="If True, don't execute SQL, just generate")
     use_cache: bool = Field(default=True, description="Whether to use caching")
     timeout_seconds: float = Field(default=30.0, description="Query execution timeout")
-    max_rows: int = Field(default=10000, description="Maximum rows to return")
+    max_rows: int = Field(default=5000, description="Maximum rows to return")
     dialect: str = Field(default="postgres", description="SQL dialect from datasource (postgres, mysql, sqlite)")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class MACSSQLInput(BaseModel):
-    """Input schema for MAC-SQL workflow."""
+class AgentInput(BaseModel):
+    """Input schema for Agent workflow."""
 
     question: str = Field(..., description="Natural language question", min_length=1)
     datasource_id: UUID = Field(..., description="Target datasource identifier")
@@ -159,8 +153,8 @@ class MACSSQLInput(BaseModel):
     max_rows: int = Field(default=10000, description="Maximum rows to return", gt=0, le=100000)
 
 
-class MACSSQLOutput(BaseModel):
-    """Output schema for MAC-SQL workflow."""
+class AgentOutput(BaseModel):
+    """Output schema for Agent workflow."""
 
     # Generated SQL
     sql: str = Field(..., description="Generated SQL query")

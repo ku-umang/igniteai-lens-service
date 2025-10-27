@@ -18,7 +18,7 @@ from opentelemetry import trace
 from core.data_connectors.factory import create_connector
 from core.integrations.schema import DataSourceResponse
 from core.logging import get_logger
-from core.services.sql.validator import get_sql_validator
+from core.services.agent.validator import get_sql_validator
 
 logger = get_logger(__name__)
 tracer = trace.get_tracer(__name__)

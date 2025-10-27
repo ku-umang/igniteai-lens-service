@@ -13,11 +13,11 @@ from opentelemetry import trace
 from core.agents.sql.state import ExecutionResult
 from core.agents.sql.visualizer import VisualizationAgent
 from core.logging import get_logger
-from core.services.visualization.aggregation_engine import AggregationEngine
-from core.services.visualization.chart_selector import ChartSelector
-from core.services.visualization.chart_templates import ChartTemplates
-from core.services.visualization.data_profiler import DataProfiler
-from core.services.visualization.spec_validator import SpecValidator
+from core.services.agent.visualization.aggregation_engine import AggregationEngine
+from core.services.agent.visualization.chart_selector import ChartSelector
+from core.services.agent.visualization.chart_templates import ChartTemplates
+from core.services.agent.visualization.data_profiler import DataProfiler
+from core.services.agent.visualization.spec_validator import SpecValidator
 
 logger = get_logger(__name__)
 tracer = trace.get_tracer(__name__)

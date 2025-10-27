@@ -1,11 +1,3 @@
-"""MAC-SQL agent API endpoints.
-
-This module provides REST API endpoints for the MAC-SQL agent system:
-- Generate SQL from natural language
-- Execute SQL and return results
-- Explain SQL generation reasoning
-"""
-
 from typing import Annotated
 from uuid import UUID
 
@@ -14,8 +6,8 @@ from opentelemetry import trace
 
 from core.agents.sql.state import ChatMessage
 from core.api.v1.schemas.agent import (
-    ExecuteSQLRequest,
-    ExecuteSQLResponse,
+    AgentResponse,
+    AgentRunRequest,
 )
 from core.dependencies.agent import AgentServiceDep
 from core.dependencies.message import MessageServiceDep
@@ -27,38 +19,38 @@ from core.services.session.session_service import SessionService
 logger = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
-router = APIRouter(prefix="/agent", tags=["MAC-SQL Agent"])
+router = APIRouter(prefix="/agent", tags=["Agent"])
 
 
 @router.post(
     "/chat",
-    response_model=ExecuteSQLResponse,
-    summary="Chat with the MAC-SQL agent",
-    description="Chat with the MAC-SQL agent",
+    response_model=AgentResponse,
+    summary="Run workflow with the agent",
+    description="Run workflow with the agent",
 )
 async def chat(
-    request: ExecuteSQLRequest,
+    request: AgentRunRequest,
     tenant_id: Annotated[UUID, Depends(get_current_tenant_id)],
     user_id: Annotated[UUID, Depends(get_current_user_id)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
     message_service: MessageServiceDep,
     agent_service: AgentServiceDep,
-) -> ExecuteSQLResponse:
-    """Chat with the MAC-SQL agent.
+) -> AgentResponse:
+    """Run workflow with the agent.
 
     Args:
-        request: Chat request
+        request: Run workflow request
         tenant_id: Tenant identifier from auth
         user_id: User identifier from auth
         session_service: Session service instance
         message_service: Message service instance
-        agent_service: SQL service instance
+        agent_service: Agent service instance
 
     Returns:
-        Chat response
+        Run workflow response
 
     Raises:
-        HTTPException: If chat fails
+        HTTPException: If run workflow fails
 
     """
     # Validate and fetch session using existing helper
@@ -76,7 +68,7 @@ async def chat(
         ) from e
 
     with tracer.start_as_current_span(
-        "api.agent.execute_sql",
+        "api.agent.run_workflow",
         attributes={
             "tenant_id": str(tenant_id),
             "datasource_id": str(session.datasource_id),
@@ -85,7 +77,7 @@ async def chat(
     ):
         try:
             logger.info(
-                "SQL execution requested",
+                "Run workflow requested",
                 extra={
                     "tenant_id": str(tenant_id),
                     "datasource_id": str(session.datasource_id),
@@ -137,7 +129,7 @@ async def chat(
                         extra={"error": str(msg_error)},
                     )
 
-            response = ExecuteSQLResponse(
+            response = AgentResponse(
                 sql=result["sql"],
                 data=result["data"],
                 rows_returned=result["rows_returned"],
@@ -151,7 +143,7 @@ async def chat(
             )
 
             logger.info(
-                "SQL execution completed",
+                "Run workflow completed",
                 extra={
                     "success": response.success,
                     "rows_returned": response.rows_returned,
@@ -164,7 +156,7 @@ async def chat(
 
         except Exception as e:
             logger.error(
-                "SQL execution failed",
+                "Run workflow failed",
                 extra={
                     "error": str(e),
                     "tenant_id": str(tenant_id),
@@ -172,5 +164,5 @@ async def chat(
             )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"SQL execution failed: {str(e)}",
+                detail=f"Run workflow failed: {str(e)}",
             ) from e

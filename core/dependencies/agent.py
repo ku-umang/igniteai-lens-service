@@ -1,10 +1,10 @@
-"""Dependencies for MAC-SQL agent endpoints."""
+"""Dependencies for agent endpoints."""
 
 from typing import Annotated
 
 from fastapi import Depends
 
-from core.services.sql.agent_service import AgentService
+from core.services.agent.agent_service import AgentService
 
 # Singleton instance
 _agent_service: AgentService | None = None

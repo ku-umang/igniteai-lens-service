@@ -1,16 +1,10 @@
-"""SQL service for orchestrating MAC-SQL workflows.
-
-This service provides a high-level interface to the MAC-SQL agent system,
-managing workflow execution, caching, and observability.
-"""
-
 from typing import Any, Dict, List
 from uuid import UUID
 
 from opentelemetry import trace
 
-from core.agents.sql.state import ChatMessage, MACSSQLInput, MACSSQLOutput
-from core.agents.sql.workflow import MACSSQLWorkflow
+from core.agents.sql.state import AgentInput, AgentOutput, ChatMessage
+from core.agents.sql.workflow import AgentWorkflow
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,9 +16,9 @@ class AgentService:
 
     def __init__(self) -> None:
         """Initialize agent service."""
-        self.workflow = MACSSQLWorkflow()
+        self.workflow = AgentWorkflow()
 
-    async def generate_sql(
+    async def run(
         self,
         question: str,
         datasource_id: UUID,
@@ -35,7 +29,7 @@ class AgentService:
         use_cache: bool = True,
         timeout_seconds: float = 30.0,
         max_rows: int = 10000,
-    ) -> MACSSQLOutput:
+    ) -> AgentOutput:
         """Generate SQL from natural language question.
 
         Args:
@@ -50,11 +44,11 @@ class AgentService:
             max_rows: Maximum rows to return
 
         Returns:
-            MAC-SQL output with generated SQL and results
+            Agent output with generated SQL and results
 
         """
         with tracer.start_as_current_span(
-            "sql_service.generate_sql",
+            "agent_service.run",
             attributes={
                 "question": question,
                 "datasource_id": str(datasource_id),
@@ -63,7 +57,7 @@ class AgentService:
             },
         ):
             logger.info(
-                "SQL generation requested",
+                "Agent workflow requested",
                 extra={
                     "question": question,
                     "datasource_id": str(datasource_id),
@@ -73,7 +67,7 @@ class AgentService:
             )
 
             # Create input
-            input_data = MACSSQLInput(
+            input_data = AgentInput(
                 question=question,
                 datasource_id=datasource_id,
                 tenant_id=tenant_id,
@@ -89,7 +83,7 @@ class AgentService:
             output = await self.workflow.run(input_data)
 
             logger.info(
-                "SQL generation completed",
+                "Agent workflow completed",
                 extra={
                     "success": output.success,
                     "sql_generated": bool(output.sql),
@@ -110,7 +104,7 @@ class AgentService:
         timeout_seconds: float = 30.0,
         max_rows: int = 10000,
     ) -> Dict[str, Any]:
-        """Chat with the MAC-SQL agent.
+        """Chat with the Agent agent.
 
         Args:
             question: User's natural language question
@@ -126,7 +120,7 @@ class AgentService:
             Dict with SQL, results, and metadata
 
         """
-        output = await self.generate_sql(
+        output = await self.run(
             question=question,
             datasource_id=datasource_id,
             tenant_id=tenant_id,

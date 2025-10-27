@@ -8,19 +8,19 @@ with three specialized agents:
 """
 
 from core.agents.sql.state import (
+    AgentInput,
+    AgentOutput,
+    AgentState,
     ExecutionResult,
     GeneratedSQL,
-    MACSSQLInput,
-    MACSSQLOutput,
-    MACSSQLState,
     QueryPlan,
     SchemaContext,
 )
 
 __all__ = [
-    "MACSSQLState",
-    "MACSSQLInput",
-    "MACSSQLOutput",
+    "AgentState",
+    "AgentInput",
+    "AgentOutput",
     "SchemaContext",
     "QueryPlan",
     "GeneratedSQL",
