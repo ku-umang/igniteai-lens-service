@@ -1,14 +1,16 @@
 """Session model for managing conversation sessions."""
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, DateTime, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database.session import Base
-from core.models.message import Message
+
+if TYPE_CHECKING:
+    from core.models.message import Message
 
 
 class Session(Base):

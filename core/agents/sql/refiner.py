@@ -193,7 +193,6 @@ class RefinerAgent:
             dialect=dialect,
         )
 
-        print(user_prompt)
         # Call LLM
         messages = [
             SystemMessage(content=REFINER_SYSTEM_PROMPT),

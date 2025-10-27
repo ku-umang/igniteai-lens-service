@@ -145,6 +145,7 @@ class AgentService:
             "execution_time_ms": output.execution_time_ms,
             "cached": output.cached,
             "complexity_score": output.complexity_score,
+            "visualization_spec": output.visualization_spec,
             "success": output.success,
             "error_message": output.error_message,
         }

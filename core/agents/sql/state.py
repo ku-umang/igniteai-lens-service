@@ -57,6 +57,17 @@ class ExecutionResult(BaseModel):
     rows_returned: int = Field(default=0, description="Number of rows returned")
 
 
+class VisualizationSpec(BaseModel):
+    """Visualization specification for Plotly charts."""
+
+    chart_type: str = Field(..., description="Type of chart (line, bar, scatter, etc.)")
+    plotly_spec: Dict[str, Any] = Field(..., description="Plotly JSON specification")
+    title: str = Field(..., description="Chart title")
+    description: Optional[str] = Field(default=None, description="Chart description")
+    generation_method: str = Field(default="rule_based", description="Generation method (rule_based or llm)")
+    generation_time_ms: float = Field(default=0.0, description="Time taken to generate visualization")
+
+
 class ChatMessage(BaseModel):
     """Simplified chat message for conversation history."""
 
@@ -104,6 +115,9 @@ class MACSSQLState(BaseModel):
 
     # Execution
     execution_result: Optional[ExecutionResult] = Field(default=None, description="Execution result")
+
+    # Visualization
+    visualization_spec: Optional[VisualizationSpec] = Field(default=None, description="Visualization specification")
 
     # Control Flow
     current_step: str = Field(default="selector", description="Current workflow step")
@@ -155,6 +169,9 @@ class MACSSQLOutput(BaseModel):
     # Results (if executed)
     data: Optional[List[Dict[str, Any]]] = Field(default=None, description="Query results (if executed)")
     rows_returned: int = Field(default=0, description="Number of rows returned")
+
+    # Visualization
+    visualization_spec: Optional[Dict[str, Any]] = Field(default=None, description="Chart visualization specification")
 
     # Reasoning (if explain_mode=True)
     schema_selection_reasoning: Optional[str] = Field(default=None, description="Selector agent reasoning")

@@ -1,6 +1,6 @@
 """Message service with business logic and tenant-aware caching."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from opentelemetry import trace
@@ -42,8 +42,9 @@ class MessageService:
         user_id: UUID,
         question: str,
         sql: Optional[str] = None,
+        visualization_spec: Optional[Dict[str, Any]] = None,
     ) -> Message:
-        """Save a chat interaction (question + SQL) to the message history.
+        """Save a chat interaction (question + SQL + visualization) to the message history.
 
         Args:
             session_id: Session identifier
@@ -51,6 +52,7 @@ class MessageService:
             user_id: User identifier
             question: User's natural language question
             sql: Generated SQL query (optional, null if generation failed)
+            visualization_spec: Plotly chart specification (optional)
 
         Returns:
             Message: Created message instance
@@ -60,6 +62,7 @@ class MessageService:
             span.set_attribute("session_id", str(session_id))
             span.set_attribute("tenant_id", str(tenant_id))
             span.set_attribute("user_id", str(user_id))
+            span.set_attribute("has_visualization", visualization_spec is not None)
 
             # Create message
             message = await self.repository.create(
@@ -68,6 +71,7 @@ class MessageService:
                 user_id=user_id,
                 question=question,
                 sql=sql,
+                visualization_spec=visualization_spec,
             )
 
             # Invalidate session history cache
@@ -78,6 +82,7 @@ class MessageService:
                 message_id=str(message.id),
                 session_id=str(session_id),
                 tenant_id=str(tenant_id),
+                has_visualization=visualization_spec is not None,
             )
 
             span.set_attribute("message_id", str(message.id))

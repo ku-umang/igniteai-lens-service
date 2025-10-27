@@ -1,6 +1,6 @@
 """Repository for message data access with multi-tenant support."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from opentelemetry import trace
@@ -33,6 +33,7 @@ class MessageRepository:
         user_id: UUID,
         question: str,
         sql: Optional[str] = None,
+        visualization_spec: Optional[Dict[str, Any]] = None,
     ) -> Message:
         """Create a new message with tenant scoping.
 
@@ -42,6 +43,7 @@ class MessageRepository:
             user_id: User identifier
             question: User's natural language question
             sql: Generated SQL query (optional)
+            visualization_spec: Plotly chart specification (optional)
 
         Returns:
             Message: Created message instance
@@ -58,6 +60,7 @@ class MessageRepository:
                 user_id=user_id,
                 question=question,
                 sql=sql,
+                visualization_spec=visualization_spec,
             )
 
             self.db_session.add(message)
@@ -70,6 +73,7 @@ class MessageRepository:
                 session_id=str(session_id),
                 tenant_id=str(tenant_id),
                 user_id=str(user_id),
+                has_visualization=visualization_spec is not None,
             )
 
             span.set_attribute("message_id", str(message.id))

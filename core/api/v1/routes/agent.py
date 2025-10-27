@@ -128,6 +128,7 @@ async def chat(
                         user_id=user_id,
                         question=request.question,
                         sql=result["sql"] if result["sql"] else None,
+                        visualization_spec=result.get("visualization_spec"),
                     )
                     message_id = saved_message.id
                 except Exception as msg_error:
@@ -143,6 +144,7 @@ async def chat(
                 execution_time_ms=result["execution_time_ms"],
                 cached=result["cached"],
                 complexity_score=result["complexity_score"],
+                visualization_spec=result.get("visualization_spec"),
                 success=result["success"],
                 error_message=result.get("error_message"),
                 message_id=message_id,

@@ -53,6 +53,7 @@ class MACSSQLWorkflow:
         graph.add_node("refiner", self._refiner_node)
         graph.add_node("validator", self._validator_node)
         graph.add_node("executor", self._executor_node)
+        graph.add_node("visualizer", self._visualizer_node)
         graph.add_node("finalizer", self._finalizer_node)
 
         # Define workflow edges
@@ -80,9 +81,12 @@ class MACSSQLWorkflow:
             self._route_after_execution,
             {
                 "retry": "refiner",
-                "finalize": "finalizer",
+                "visualize": "visualizer",
             },
         )
+
+        # Edge from visualizer to finalizer (visualization failure won't break workflow)
+        graph.add_edge("visualizer", "finalizer")
 
         graph.add_edge("finalizer", END)
 
@@ -304,6 +308,61 @@ class MACSSQLWorkflow:
                     "errors": [error_msg],
                 }
 
+    async def _visualizer_node(self, state: MACSSQLState) -> Dict[str, Any]:
+        """Visualizer node to generate chart specifications.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state dict with visualization_spec
+
+        """
+        try:
+            # Only generate visualization if execution succeeded with data
+            if not state.execution_result or not state.execution_result.success:
+                logger.info("Skipping visualization - no execution result")
+                return {"current_step": "finalize"}
+
+            if not state.execution_result.rows:
+                logger.info("Skipping visualization - no data rows")
+                return {"current_step": "finalize"}
+
+            # Import here to avoid circular dependencies
+            from core.services.visualization.visualizer_service import VisualizationService
+
+            viz_service = VisualizationService()
+
+            # Generate visualization spec
+            viz_spec_dict = await viz_service.generate_visualization(
+                execution_result=state.execution_result,
+                sql=state.generated_sql.sql if state.generated_sql else "",
+                question=state.optimized_question or state.user_question,
+            )
+
+            if viz_spec_dict:
+                # Convert dict to VisualizationSpec model
+                from core.agents.sql.state import VisualizationSpec
+
+                viz_spec = VisualizationSpec(**viz_spec_dict)
+                logger.info(
+                    "Visualization generated",
+                    chart_type=viz_spec.chart_type,
+                    generation_method=viz_spec.generation_method,
+                )
+                return {
+                    "visualization_spec": viz_spec,
+                    "current_step": "finalize",
+                }
+            else:
+                logger.warning("Visualization generation returned None")
+                return {"current_step": "finalize"}
+
+        except Exception as e:
+            logger.error("Visualizer node failed", extra={"error": str(e)})
+            # Don't fail the workflow - continue without visualization
+            return {"current_step": "finalize"}
+
     async def _finalizer_node(self, state: MACSSQLState) -> Dict[str, Any]:
         """Finalizer node to prepare output.
 
@@ -352,13 +411,13 @@ class MACSSQLWorkflow:
             state: Current workflow state
 
         Returns:
-            Next node name - either "retry" (to refiner) or "finalize"
+            Next node name - either "retry" (to refiner) or "visualize"
 
         """
         if state.current_step == "retry":
             return "retry"
         else:
-            return "finalize"
+            return "visualize"
 
     async def run(self, input_data: MACSSQLInput) -> MACSSQLOutput:
         """Run the MAC-SQL workflow.
@@ -524,6 +583,10 @@ class MACSSQLWorkflow:
             output.rows_returned = state.execution_result.rows_returned
             output.cached = state.execution_result.cached
             output.data = state.execution_result.rows
+
+        # Add visualization spec if available
+        if state.visualization_spec:
+            output.visualization_spec = state.visualization_spec.model_dump()
 
         # Add reasoning if explain mode
         if state.explain_mode:

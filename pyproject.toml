@@ -43,6 +43,8 @@ dependencies = [
     "langgraph>=1.0.1",
     "langchain-openai>=1.0.1",
     "sqlglot>=27.28.1",
+    "plotly>=6.3.1",
+    "scipy>=1.16.2",
 ]
 
 [tool.ruff]

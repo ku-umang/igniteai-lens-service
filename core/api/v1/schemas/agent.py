@@ -75,6 +75,7 @@ class ExecuteSQLResponse(BaseModel):
     execution_time_ms: float = Field(default=0.0, description="Total execution time in milliseconds")
     cached: bool = Field(default=False, description="Whether results came from cache")
     complexity_score: float = Field(default=0.0, description="Query complexity score (0-1)")
+    visualization_spec: Optional[Dict[str, Any]] = Field(None, description="Plotly chart specification")
     success: bool = Field(default=True, description="Overall success status")
     error_message: Optional[str] = Field(None, description="Error message if failed")
     message_id: Optional[UUID] = Field(None, description="Message ID of saved chat interaction")
