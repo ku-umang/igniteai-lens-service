@@ -48,10 +48,14 @@ class SelectorAgent:
             Updated state dict with schema_context populated
 
         """
+        # Use optimized question if available, otherwise fall back to original
+        question_to_use = state.optimized_question or state.user_question
+
         with tracer.start_as_current_span(
             "selector_agent.select_schema",
             attributes={
-                "question": state.user_question,
+                "question": question_to_use,
+                "original_question": state.user_question,
                 "datasource_id": str(state.datasource_id),
                 "tenant_id": str(state.tenant_id),
             },
@@ -62,21 +66,22 @@ class SelectorAgent:
                 logger.info(
                     "Selector agent starting",
                     extra={
-                        "question": state.user_question,
+                        "question": question_to_use,
+                        "original_question": state.user_question,
                         "datasource_id": str(state.datasource_id),
                     },
                 )
 
                 # Step 1: Retrieve schema from platform service
                 retrieval_result = await self._retrieve_schema(
-                    question=state.user_question,
+                    question=question_to_use,
                     datasource_id=str(state.datasource_id),
                     tenant_id=str(state.tenant_id),
                 )
 
                 # Step 2: Use LLM to select minimal schema
                 selection = await self._llm_select_schema(
-                    question=state.user_question,
+                    question=question_to_use,
                     retrieval_result=retrieval_result,
                 )
 
@@ -84,7 +89,7 @@ class SelectorAgent:
                 schema_context = SchemaContext(
                     tables=selection.get("selected_tables_full", []),
                     columns=selection.get("selected_columns_full", []),
-                    relationships=selection.get("join_paths", []),
+                    relationships=selection.get("relationships", []),
                     example_queries=retrieval_result.get("example_queries", []),
                     reasoning=selection.get("reasoning", ""),
                 )
@@ -217,6 +222,9 @@ class SelectorAgent:
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
 
+            # Fix improperly escaped single quotes in JSON strings (\' -> ')
+            content = content.replace(r"\'", "'")
+
             selection = json.loads(content)
 
             # Enrich selection with full metadata from retrieval
@@ -243,7 +251,7 @@ class SelectorAgent:
             return {
                 "selected_tables": [t.get("metadata", {}).get("table_name") for t in retrieval_result.get("tables", [])],
                 "selected_columns": {},
-                "join_paths": retrieval_result.get("relationships", []),
+                "relationships": retrieval_result.get("relationships", []),
                 "reasoning": f"Failed to parse LLM response, using all retrieved schema. Error: {str(e)}",
                 "selected_tables_full": retrieval_result.get("tables", []),
                 "selected_columns_full": retrieval_result.get("columns", []),

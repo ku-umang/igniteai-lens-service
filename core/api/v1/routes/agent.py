@@ -12,15 +12,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from opentelemetry import trace
 
+from core.agents.sql.state import ChatMessage
 from core.api.v1.schemas.agent import (
-    AgentReasoningResponse,
     ExecuteSQLRequest,
     ExecuteSQLResponse,
-    GenerateSQLRequest,
-    GenerateSQLResponse,
-    ValidationResponse,
 )
 from core.dependencies.agent import AgentServiceDep
+from core.dependencies.message import MessageServiceDep
 from core.dependencies.session import get_session_service, verify_session_ownership_helper
 from core.logging import get_logger
 from core.security.auth import get_current_tenant_id, get_current_user_id
@@ -33,153 +31,34 @@ router = APIRouter(prefix="/agent", tags=["MAC-SQL Agent"])
 
 
 @router.post(
-    "/generate",
-    response_model=GenerateSQLResponse,
-    summary="Generate SQL from natural language",
-    description="Generate SQL query from a natural language question using MAC-SQL agents",
-)
-async def generate_sql(
-    request: GenerateSQLRequest,
-    tenant_id: Annotated[UUID, Depends(get_current_tenant_id)],
-    user_id: Annotated[UUID, Depends(get_current_user_id)],
-    session_service: Annotated[SessionService, Depends(get_session_service)],
-    agent_service: AgentServiceDep,
-) -> GenerateSQLResponse:
-    """Generate SQL from natural language question.
-
-    Args:
-        request: SQL generation request
-        tenant_id: Tenant identifier from auth
-        user_id: User identifier from auth
-        session_service: Session service instance
-        agent_service: SQL service instance
-
-    Returns:
-        Generated SQL with metadata
-
-    Raises:
-        HTTPException: If generation fails
-
-    """
-    with tracer.start_as_current_span(
-        "agent.generate_sql",
-        attributes={
-            "tenant_id": str(tenant_id),
-            "session_id": str(request.session_id),
-            "explain_mode": request.explain_mode,
-        },
-    ):
-        # Validate and fetch session using existing helper
-        try:
-            session = await verify_session_ownership_helper(
-                session_id=request.session_id,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                session_service=session_service,
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Session not found or access denied: {str(e)}",
-            ) from e
-
-        try:
-            logger.info(
-                "SQL generation requested",
-                extra={
-                    "tenant_id": str(tenant_id),
-                    "datasource_id": str(session.datasource_id),
-                    "session_id": str(session.id),
-                    "question_length": len(request.question),
-                },
-            )
-
-            # Generate SQL using datasource from session
-            output = await agent_service.generate_sql(
-                question=request.question,
-                datasource_id=session.datasource_id,
-                tenant_id=tenant_id,
-                session_id=str(request.session_id),
-                explain_mode=request.explain_mode,
-                use_cache=request.use_cache,
-                timeout_seconds=request.timeout_seconds,
-                max_rows=request.max_rows,
-            )
-
-            # Build response
-            reasoning = None
-            if request.explain_mode:
-                reasoning = AgentReasoningResponse(
-                    schema_selection=output.schema_selection_reasoning,
-                    query_decomposition=output.decomposition_reasoning,
-                    sql_refinement=output.refinement_reasoning,
-                )
-
-            response = GenerateSQLResponse(
-                sql=output.sql,
-                dialect=output.dialect,
-                complexity_score=output.complexity_score,
-                execution_time_ms=output.execution_time_ms,
-                validation=ValidationResponse(
-                    is_valid=output.is_valid,
-                    errors=output.validation_errors,
-                ),
-                reasoning=reasoning,
-                success=output.success,
-                error_message=output.error_message,
-            )
-
-            logger.info(
-                "SQL generation completed",
-                extra={
-                    "success": response.success,
-                    "complexity_score": response.complexity_score,
-                },
-            )
-
-            return response
-
-        except Exception as e:
-            logger.error(
-                "SQL generation failed",
-                extra={
-                    "error": str(e),
-                    "tenant_id": str(tenant_id),
-                },
-            )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"SQL generation failed: {str(e)}",
-            ) from e
-
-
-@router.post(
-    "/execute",
+    "/chat",
     response_model=ExecuteSQLResponse,
-    summary="Generate and execute SQL",
-    description="Generate SQL from natural language and execute it, returning results",
+    summary="Chat with the MAC-SQL agent",
+    description="Chat with the MAC-SQL agent",
 )
-async def execute_sql(
+async def chat(
     request: ExecuteSQLRequest,
     tenant_id: Annotated[UUID, Depends(get_current_tenant_id)],
     user_id: Annotated[UUID, Depends(get_current_user_id)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
+    message_service: MessageServiceDep,
     agent_service: AgentServiceDep,
 ) -> ExecuteSQLResponse:
-    """Generate and execute SQL from natural language question.
+    """Chat with the MAC-SQL agent.
 
     Args:
-        request: SQL execution request
+        request: Chat request
         tenant_id: Tenant identifier from auth
         user_id: User identifier from auth
         session_service: Session service instance
+        message_service: Message service instance
         agent_service: SQL service instance
 
     Returns:
-        SQL query and execution results
+        Chat response
 
     Raises:
-        HTTPException: If execution fails
+        HTTPException: If chat fails
 
     """
     # Validate and fetch session using existing helper
@@ -215,16 +94,47 @@ async def execute_sql(
                 },
             )
 
+            # Fetch conversation history
+            chat_history = []
+            if request.max_history_messages > 0:
+                messages = await message_service.get_session_history(
+                    session_id=request.session_id,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    limit=request.max_history_messages,
+                )
+                # Convert Message models to ChatMessage (reverse to get oldest first)
+                chat_history = [ChatMessage(question=msg.question, sql=msg.sql) for msg in reversed(messages)]
+
             # Execute SQL using datasource from session
-            result = await agent_service.execute_sql(
+            result = await agent_service.chat(
                 question=request.question,
                 datasource_id=session.datasource_id,
                 tenant_id=tenant_id,
                 session_id=str(request.session_id),
+                chat_history=chat_history,
                 use_cache=request.use_cache,
                 timeout_seconds=request.timeout_seconds,
                 max_rows=request.max_rows,
             )
+
+            # Save chat interaction after successful execution
+            message_id = None
+            if result["success"]:
+                try:
+                    saved_message = await message_service.save_chat_interaction(
+                        session_id=request.session_id,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        question=request.question,
+                        sql=result["sql"] if result["sql"] else None,
+                    )
+                    message_id = saved_message.id
+                except Exception as msg_error:
+                    logger.warning(
+                        "Failed to save chat message",
+                        extra={"error": str(msg_error)},
+                    )
 
             response = ExecuteSQLResponse(
                 sql=result["sql"],
@@ -235,6 +145,7 @@ async def execute_sql(
                 complexity_score=result["complexity_score"],
                 success=result["success"],
                 error_message=result.get("error_message"),
+                message_id=message_id,
             )
 
             logger.info(
@@ -243,6 +154,7 @@ async def execute_sql(
                     "success": response.success,
                     "rows_returned": response.rows_returned,
                     "cached": response.cached,
+                    "message_saved": message_id is not None,
                 },
             )
 

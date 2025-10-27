@@ -1,7 +1,7 @@
 """LangGraph workflow for MAC-SQL agent system.
 
-This module defines the workflow that orchestrates the three MAC-SQL agents:
-Selector -> Decomposer -> Refiner -> Executor
+This module defines the workflow that orchestrates the MAC-SQL agents:
+Optimizer -> Selector -> Decomposer -> Refiner -> Executor
 """
 
 import time
@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from opentelemetry import trace
 
 from core.agents.sql.decomposer import DecomposerAgent
+from core.agents.sql.optimizer import OptimizerAgent
 from core.agents.sql.refiner import RefinerAgent
 from core.agents.sql.selector import SelectorAgent
 from core.agents.sql.state import ExecutionResult, MACSSQLInput, MACSSQLOutput, MACSSQLState
@@ -29,6 +30,7 @@ class MACSSQLWorkflow:
 
     def __init__(self) -> None:
         """Initialize the MAC-SQL workflow."""
+        self.optimizer = OptimizerAgent()
         self.selector = SelectorAgent()
         self.decomposer = DecomposerAgent()
         self.refiner = RefinerAgent()
@@ -45,6 +47,7 @@ class MACSSQLWorkflow:
         graph = StateGraph(MACSSQLState)
 
         # Add nodes for each agent
+        graph.add_node("optimizer", self._optimizer_node)
         graph.add_node("selector", self._selector_node)
         graph.add_node("decomposer", self._decomposer_node)
         graph.add_node("refiner", self._refiner_node)
@@ -53,7 +56,8 @@ class MACSSQLWorkflow:
         graph.add_node("finalizer", self._finalizer_node)
 
         # Define workflow edges
-        graph.set_entry_point("selector")
+        graph.set_entry_point("optimizer")
+        graph.add_edge("optimizer", "selector")
         graph.add_edge("selector", "decomposer")
         graph.add_edge("decomposer", "refiner")
         graph.add_edge("refiner", "validator")
@@ -83,6 +87,18 @@ class MACSSQLWorkflow:
         graph.add_edge("finalizer", END)
 
         return graph.compile()
+
+    async def _optimizer_node(self, state: MACSSQLState) -> Dict[str, Any]:
+        """Optimizer agent node.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state dict
+
+        """
+        return await self.optimizer.optimize_question(state)
 
     async def _selector_node(self, state: MACSSQLState) -> Dict[str, Any]:
         """Selector agent node.
@@ -400,6 +416,7 @@ class MACSSQLWorkflow:
                     datasource=datasource,
                     tenant_id=input_data.tenant_id,
                     session_id=input_data.session_id,
+                    chat_history=input_data.chat_history,
                     explain_mode=input_data.explain_mode,
                     use_cache=input_data.use_cache,
                     timeout_seconds=input_data.timeout_seconds,

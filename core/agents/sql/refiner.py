@@ -54,13 +54,14 @@ class RefinerAgent:
                 "complexity": state.query_plan.complexity_score if state.query_plan else 0,
             },
         ) as span:
+            question_to_use = state.optimized_question or state.user_question
             try:
                 if not state.schema_context or not state.query_plan:
                     raise ValueError("Schema context and query plan required")
 
                 logger.info(
                     "Refiner agent starting",
-                    extra={"question": state.user_question},
+                    extra={"question": question_to_use},
                 )
 
                 # Extract selected schema info for the prompt
@@ -84,7 +85,7 @@ class RefinerAgent:
 
                 # Use LLM to generate SQL
                 sql_dict = await self._llm_generate_sql(
-                    question=state.user_question,
+                    question=question_to_use,
                     selected_schema=selected_schema,
                     query_plan=query_plan_dict,
                     dialect=dialect,
@@ -117,7 +118,7 @@ class RefinerAgent:
                     "Refiner agent failed",
                     extra={
                         "error": str(e),
-                        "question": state.user_question,
+                        "question": question_to_use,
                     },
                 )
                 return {
@@ -132,11 +133,16 @@ class RefinerAgent:
             state: Current workflow state
 
         Returns:
-            Dict with selected tables and columns
+            Dict with selected tables, columns, relationships, and example queries
 
         """
         if not state.schema_context:
-            return {"selected_tables": [], "selected_columns": {}}
+            return {
+                "selected_tables": [],
+                "selected_columns": {},
+                "relationships": [],
+                "example_queries": [],
+            }
 
         # Extract unique table names
         tables = list({table.get("metadata", {}).get("table_name") for table in state.schema_context.tables})
@@ -156,6 +162,8 @@ class RefinerAgent:
         return {
             "selected_tables": tables,
             "selected_columns": columns_by_table,
+            "relationships": state.schema_context.relationships,
+            "example_queries": state.schema_context.example_queries,
         }
 
     async def _llm_generate_sql(
@@ -185,6 +193,7 @@ class RefinerAgent:
             dialect=dialect,
         )
 
+        print(user_prompt)
         # Call LLM
         messages = [
             SystemMessage(content=REFINER_SYSTEM_PROMPT),
@@ -204,6 +213,10 @@ class RefinerAgent:
 
             # Replace patterns like: "text\n" + "more" with "text\nmore"
             content = re.sub(r'"\s*\+\s*\n?\s*"', "", content)
+
+            # Fix improperly escaped single quotes in JSON strings (\' -> ')
+            # This happens when LLMs incorrectly escape single quotes in SQL code within JSON
+            content = content.replace(r"\'", "'")
 
             sql_result = json.loads(content)
             return sql_result

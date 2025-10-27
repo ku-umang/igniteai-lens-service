@@ -53,13 +53,15 @@ class DecomposerAgent:
                 "tables_selected": len(state.schema_context.tables) if state.schema_context else 0,
             },
         ) as span:
+            question_to_use = state.user_question
             try:
+                question_to_use = state.optimized_question or state.user_question
                 if not state.schema_context:
                     raise ValueError("Schema context not available")
 
                 logger.info(
                     "Decomposer agent starting",
-                    extra={"question": state.user_question},
+                    extra={"question": question_to_use},
                 )
 
                 # Extract selected schema info
@@ -67,10 +69,11 @@ class DecomposerAgent:
 
                 # Use LLM to create query plan
                 plan_dict = await self._llm_decompose_query(
-                    question=state.user_question,
+                    question=question_to_use,
                     selected_tables=selected_info["tables"],
                     selected_columns=selected_info["columns"],
-                    join_paths=selected_info["join_paths"],
+                    relationships=selected_info["relationships"],
+                    example_queries=selected_info["example_queries"],
                 )
 
                 # Build QueryPlan
@@ -105,7 +108,7 @@ class DecomposerAgent:
                     "Decomposer agent failed",
                     extra={
                         "error": str(e),
-                        "question": state.user_question,
+                        "question": question_to_use,
                     },
                 )
                 return {
@@ -120,7 +123,7 @@ class DecomposerAgent:
             schema_context: SchemaContext from Selector
 
         Returns:
-            Dict with tables, columns, and join_paths
+            Dict with tables, columns, relationships, and example queries
 
         """
         # Extract unique table names
@@ -139,7 +142,8 @@ class DecomposerAgent:
         return {
             "tables": tables,
             "columns": columns_by_table,
-            "join_paths": schema_context.relationships,
+            "relationships": schema_context.relationships,
+            "example_queries": schema_context.example_queries,
         }
 
     async def _llm_decompose_query(
@@ -147,7 +151,8 @@ class DecomposerAgent:
         question: str,
         selected_tables: list,
         selected_columns: dict,
-        join_paths: list,
+        relationships: list,
+        example_queries: list,
     ) -> Dict[str, Any]:
         """Use LLM to create query plan.
 
@@ -155,7 +160,8 @@ class DecomposerAgent:
             question: User's natural language question
             selected_tables: List of selected table names
             selected_columns: Dict mapping table names to column lists
-            join_paths: List of join path definitions
+            relationships: List of join path definitions
+            example_queries: List of example queries for reference
 
         Returns:
             Query plan dict
@@ -166,7 +172,8 @@ class DecomposerAgent:
             question=question,
             selected_tables=selected_tables,
             selected_columns=selected_columns,
-            join_paths=join_paths,
+            relationships=relationships,
+            example_queries=example_queries,
         )
 
         # Call LLM
@@ -185,6 +192,9 @@ class DecomposerAgent:
                 content = content.split("```json")[1].split("```")[0].strip()
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
+
+            # Fix improperly escaped single quotes in JSON strings (\' -> ')
+            content = content.replace(r"\'", "'")
 
             plan = json.loads(content)
             return plan

@@ -57,6 +57,13 @@ class ExecutionResult(BaseModel):
     rows_returned: int = Field(default=0, description="Number of rows returned")
 
 
+class ChatMessage(BaseModel):
+    """Simplified chat message for conversation history."""
+
+    question: str = Field(..., description="User's question")
+    sql: Optional[str] = Field(default=None, description="Generated SQL (if any)")
+
+
 class MACSSQLState(BaseModel):
     """State schema for MAC-SQL workflow using LangGraph.
 
@@ -70,6 +77,21 @@ class MACSSQLState(BaseModel):
     tenant_id: UUID = Field(..., description="Tenant identifier")
     datasource: DataSourceResponse = Field(..., description="Datasource")
     session_id: Optional[str] = Field(default=None, description="Session ID for context/history")
+
+    # Chat History & Optimization
+    chat_history: List[ChatMessage] = Field(
+        default_factory=list,
+        description="Recent conversation history for context-aware optimization",
+    )
+    original_question: Optional[str] = Field(default=None, description="User's original raw question")
+    optimized_question: Optional[str] = Field(
+        default=None,
+        description="Context-aware optimized question (after optimizer agent)",
+    )
+    optimization_metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Metadata from question optimization (changes made, reasoning)",
+    )
 
     # Schema Selection (Selector Agent)
     schema_context: Optional[SchemaContext] = Field(default=None, description="Selected schema context")
@@ -113,6 +135,10 @@ class MACSSQLInput(BaseModel):
     datasource_id: UUID = Field(..., description="Target datasource identifier")
     tenant_id: UUID = Field(..., description="Tenant identifier")
     session_id: Optional[str] = Field(default=None, description="Session ID for context")
+    chat_history: List[ChatMessage] = Field(
+        default_factory=list,
+        description="Recent conversation history for context-aware optimization",
+    )
     explain_mode: bool = Field(default=False, description="Return reasoning without executing")
     use_cache: bool = Field(default=True, description="Use cached results if available")
     timeout_seconds: float = Field(default=30.0, description="Query execution timeout", gt=0, le=300)

@@ -4,12 +4,12 @@ This service provides a high-level interface to the MAC-SQL agent system,
 managing workflow execution, caching, and observability.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 from uuid import UUID
 
 from opentelemetry import trace
 
-from core.agents.sql.state import MACSSQLInput, MACSSQLOutput
+from core.agents.sql.state import ChatMessage, MACSSQLInput, MACSSQLOutput
 from core.agents.sql.workflow import MACSSQLWorkflow
 from core.logging import get_logger
 
@@ -17,11 +17,11 @@ logger = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-class SQLService:
-    """Service for managing SQL generation and execution via MAC-SQL agents."""
+class AgentService:
+    """Service for managing agent workflows."""
 
     def __init__(self) -> None:
-        """Initialize SQL service."""
+        """Initialize agent service."""
         self.workflow = MACSSQLWorkflow()
 
     async def generate_sql(
@@ -30,6 +30,7 @@ class SQLService:
         datasource_id: UUID,
         tenant_id: UUID,
         session_id: str | None = None,
+        chat_history: List[ChatMessage] | None = None,
         explain_mode: bool = False,
         use_cache: bool = True,
         timeout_seconds: float = 30.0,
@@ -42,6 +43,7 @@ class SQLService:
             datasource_id: Target datasource identifier
             tenant_id: Tenant identifier
             session_id: Optional session ID for context
+            chat_history: Optional conversation history for context
             explain_mode: Return reasoning without executing
             use_cache: Use cached results if available
             timeout_seconds: Query execution timeout
@@ -76,6 +78,7 @@ class SQLService:
                 datasource_id=datasource_id,
                 tenant_id=tenant_id,
                 session_id=session_id,
+                chat_history=chat_history or [],
                 explain_mode=explain_mode,
                 use_cache=use_cache,
                 timeout_seconds=timeout_seconds,
@@ -96,23 +99,25 @@ class SQLService:
 
             return output
 
-    async def execute_sql(
+    async def chat(
         self,
         question: str,
         datasource_id: UUID,
         tenant_id: UUID,
         session_id: str | None = None,
+        chat_history: List[ChatMessage] | None = None,
         use_cache: bool = True,
         timeout_seconds: float = 30.0,
         max_rows: int = 10000,
     ) -> Dict[str, Any]:
-        """Generate and execute SQL from natural language question.
+        """Chat with the MAC-SQL agent.
 
         Args:
             question: User's natural language question
             datasource_id: Target datasource identifier
             tenant_id: Tenant identifier
             session_id: Optional session ID for context
+            chat_history: Optional conversation history for context
             use_cache: Use cached results if available
             timeout_seconds: Query execution timeout
             max_rows: Maximum rows to return
@@ -126,6 +131,7 @@ class SQLService:
             datasource_id=datasource_id,
             tenant_id=tenant_id,
             session_id=session_id,
+            chat_history=chat_history,
             explain_mode=False,  # Execute, don't just explain
             use_cache=use_cache,
             timeout_seconds=timeout_seconds,
@@ -139,49 +145,6 @@ class SQLService:
             "execution_time_ms": output.execution_time_ms,
             "cached": output.cached,
             "complexity_score": output.complexity_score,
-            "success": output.success,
-            "error_message": output.error_message,
-        }
-
-    async def explain_sql(
-        self,
-        question: str,
-        datasource_id: UUID,
-        tenant_id: UUID,
-        session_id: str | None = None,
-    ) -> Dict[str, Any]:
-        """Generate SQL and return reasoning without executing.
-
-        Args:
-            question: User's natural language question
-            datasource_id: Target datasource identifier
-            tenant_id: Tenant identifier
-            session_id: Optional session ID for context
-
-        Returns:
-            Dict with SQL and agent reasoning
-
-        """
-        output = await self.generate_sql(
-            question=question,
-            datasource_id=datasource_id,
-            tenant_id=tenant_id,
-            session_id=session_id,
-            explain_mode=True,  # Explain only
-        )
-
-        return {
-            "sql": output.sql,
-            "reasoning": {
-                "schema_selection": output.schema_selection_reasoning,
-                "query_decomposition": output.decomposition_reasoning,
-                "sql_refinement": output.refinement_reasoning,
-            },
-            "complexity_score": output.complexity_score,
-            "validation": {
-                "is_valid": output.is_valid,
-                "errors": output.validation_errors,
-            },
             "success": output.success,
             "error_message": output.error_message,
         }

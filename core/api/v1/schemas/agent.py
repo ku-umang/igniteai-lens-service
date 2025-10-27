@@ -1,5 +1,6 @@
 """API schemas for MAC-SQL agent endpoints."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -15,6 +16,7 @@ class GenerateSQLRequest(BaseModel):
     use_cache: bool = Field(default=True, description="Use cached results if available")
     timeout_seconds: float = Field(default=30.0, description="Query execution timeout", gt=0, le=300)
     max_rows: int = Field(default=10000, description="Maximum rows to return", gt=0, le=100000)
+    max_history_messages: int = Field(default=10, description="Max conversation history to include", ge=0, le=50)
 
 
 class ExecuteSQLRequest(BaseModel):
@@ -25,6 +27,7 @@ class ExecuteSQLRequest(BaseModel):
     use_cache: bool = Field(default=True, description="Use cached results if available")
     timeout_seconds: float = Field(default=30.0, description="Query execution timeout", gt=0, le=300)
     max_rows: int = Field(default=10000, description="Maximum rows to return", gt=0, le=100000)
+    max_history_messages: int = Field(default=10, description="Max conversation history to include", ge=0, le=50)
 
 
 class ExplainSQLRequest(BaseModel):
@@ -32,6 +35,7 @@ class ExplainSQLRequest(BaseModel):
 
     question: str = Field(..., description="Natural language question", min_length=1, max_length=1000)
     session_id: UUID = Field(..., description="Session ID (datasource will be fetched from session)")
+    max_history_messages: int = Field(default=10, description="Max conversation history to include", ge=0, le=50)
 
 
 class AgentReasoningResponse(BaseModel):
@@ -73,6 +77,7 @@ class ExecuteSQLResponse(BaseModel):
     complexity_score: float = Field(default=0.0, description="Query complexity score (0-1)")
     success: bool = Field(default=True, description="Overall success status")
     error_message: Optional[str] = Field(None, description="Error message if failed")
+    message_id: Optional[UUID] = Field(None, description="Message ID of saved chat interaction")
 
 
 class ExplainSQLResponse(BaseModel):
@@ -84,3 +89,20 @@ class ExplainSQLResponse(BaseModel):
     validation: ValidationResponse = Field(..., description="Validation results")
     success: bool = Field(default=True, description="Overall success status")
     error_message: Optional[str] = Field(None, description="Error message if failed")
+
+
+class ChatMessageResponse(BaseModel):
+    """Response schema for a chat message."""
+
+    id: UUID = Field(..., description="Message ID")
+    session_id: UUID = Field(..., description="Session ID")
+    question: str = Field(..., description="User's question")
+    sql: Optional[str] = Field(None, description="Generated SQL (null if generation failed)")
+    created_at: datetime = Field(..., description="Message creation timestamp")
+
+
+class ChatHistoryResponse(BaseModel):
+    """Response schema for chat history."""
+
+    messages: List[ChatMessageResponse] = Field(..., description="List of chat messages")
+    total: int = Field(..., description="Total number of messages in session")

@@ -4,17 +4,24 @@ import uuid
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from opentelemetry import trace
 
 from core.api.metrics import api_requests_total
+from core.api.v1.schemas.agent import (
+    ChatHistoryResponse,
+    ChatMessageResponse,
+)
 from core.api.v1.schemas.session import (
     SessionCreate,
     SessionResponse,
     SessionUpdate,
 )
+from core.dependencies.message import MessageServiceDep
 from core.dependencies.session import (
     get_session_service,
     verify_session_ownership,
+    verify_session_ownership_helper,
 )
 from core.logging import get_logger
 from core.models.session import Session
@@ -25,6 +32,7 @@ from core.services.session.session_service import SessionService
 from core.utils.pagination import paginate_per_page
 
 logger = get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 router = APIRouter(prefix="/v1/sessions", tags=["Sessions"])
 
@@ -316,3 +324,96 @@ async def delete_session(
         session_metrics.record_operation_complete("delete", operation_id, success=False)
         api_requests_total.labels(version="v1", resource="sessions", operation="delete", status="error").inc()
         raise
+
+
+@router.get(
+    "/{session_id}/history",
+    response_model=ChatHistoryResponse,
+    summary="Get chat history for a session",
+    description="Retrieve conversation history (questions and SQL) for a session",
+)
+async def get_chat_history(
+    session_id: UUID,
+    tenant_id: Annotated[UUID, Depends(get_current_tenant_id)],
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+    session_service: Annotated[SessionService, Depends(get_session_service)],
+    message_service: MessageServiceDep,
+    limit: int = 50,
+) -> ChatHistoryResponse:
+    """Get chat history for a session.
+
+    Args:
+        session_id: Session identifier
+        limit: Maximum number of messages to return
+        tenant_id: Tenant identifier from auth
+        user_id: User identifier from auth
+        session_service: Session service instance
+        message_service: Message service instance
+
+    Returns:
+        Chat history response
+
+    Raises:
+        HTTPException: If session not found or access denied
+
+    """
+    # Validate session ownership
+    try:
+        await verify_session_ownership_helper(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_service=session_service,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session not found or access denied: {str(e)}",
+        ) from e
+
+    with tracer.start_as_current_span(
+        "api.agent.get_chat_history",
+        attributes={
+            "tenant_id": str(tenant_id),
+            "session_id": str(session_id),
+        },
+    ):
+        try:
+            # Fetch messages with pagination
+            messages, total = await message_service.get_paginated_messages(
+                session_id=session_id,
+                tenant_id=tenant_id,
+                skip=0,
+                limit=limit,
+            )
+
+            # Convert to response format
+            message_responses = [
+                ChatMessageResponse(
+                    id=msg.id,
+                    session_id=msg.session_id,
+                    question=msg.question,
+                    sql=msg.sql,
+                    created_at=msg.created_at,
+                )
+                for msg in messages
+            ]
+
+            return ChatHistoryResponse(
+                messages=message_responses,
+                total=total,
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to fetch chat history",
+                extra={
+                    "error": str(e),
+                    "session_id": str(session_id),
+                    "tenant_id": str(tenant_id),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch chat history: {str(e)}",
+            ) from e

@@ -5,9 +5,10 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, DateTime, Index, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database.session import Base
+from core.models.message import Message
 
 
 class Session(Base):
@@ -80,6 +81,14 @@ class Session(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         doc="Session last update timestamp",
+    )
+
+    # Relationship to Messages
+    messages: Mapped[list["Message"]] = relationship(  # type: ignore[name-defined]
+        "Message",
+        back_populates="session",
+        lazy="select",
+        cascade="all, delete-orphan",
     )
 
     # Table constraints and indexes

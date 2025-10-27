@@ -51,6 +51,9 @@ Selected Tables: {selected_tables}
 Join Paths (if any):
 {join_paths}
 
+Example Queries (for reference):
+{example_queries}
+
 Task: Create a logical query plan to answer the user's question.
 Break it into clear steps and provide your plan in the specified JSON format.
 
@@ -60,6 +63,7 @@ Consider:
 - What joins are required?
 - What sorting or grouping is needed?
 - Are window functions or CTEs beneficial?
+- Reference the example queries for common patterns
 """
 
 
@@ -67,7 +71,8 @@ def format_decomposer_prompt(
     question: str,
     selected_tables: list,
     selected_columns: dict,
-    join_paths: list,
+    relationships: list,
+    example_queries: list,
 ) -> str:
     """Format the Decomposer agent prompt with selected schema.
 
@@ -75,7 +80,8 @@ def format_decomposer_prompt(
         question: User's natural language question
         selected_tables: List of selected table names
         selected_columns: Dict mapping table names to column lists
-        join_paths: List of join path definitions
+        relationships: List of join path definitions
+        example_queries: List of example queries for reference
 
     Returns:
         Formatted prompt string
@@ -91,7 +97,7 @@ def format_decomposer_prompt(
 
     # Format join paths
     join_paths_lines = []
-    for jp in join_paths:
+    for jp in relationships:
         from_table = jp.get("from_table", "unknown")
         to_table = jp.get("to_table", "unknown")
         join_cols = jp.get("join_columns", [])
@@ -102,9 +108,27 @@ def format_decomposer_prompt(
         join_paths_lines.append(f"- {join_desc}")
     join_paths_str = "\n".join(join_paths_lines) if join_paths_lines else "No joins needed"
 
+    # Format example queries
+    if example_queries:
+        example_lines = []
+        for i, example in enumerate(example_queries[:2], 1):  # Limit to top 2 examples
+            content = example.get("content", "")
+            metadata = example.get("metadata", {})
+            description = metadata.get("description", "")
+
+            example_lines.append(f"\nExample {i}:")
+            if description:
+                example_lines.append(f"  Description: {description}")
+            # Show abbreviated SQL for decomposer (it doesn't need full SQL, just patterns)
+            example_lines.append(f"  SQL Pattern: {content[:200]}{'...' if len(content) > 200 else ''}")
+        examples_str = "\n".join(example_lines)
+    else:
+        examples_str = "No example queries available"
+
     return DECOMPOSER_USER_PROMPT_TEMPLATE.format(
         question=question,
         selected_schema=schema_str,
         selected_tables=", ".join(selected_tables),
         join_paths=join_paths_str,
+        example_queries=examples_str,
     )

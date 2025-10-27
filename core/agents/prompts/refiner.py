@@ -50,6 +50,12 @@ REFINER_USER_PROMPT_TEMPLATE = """User Question: {question}
 Selected Schema:
 {selected_schema}
 
+Table Relationships (Foreign Keys & Join Paths):
+{relationships}
+
+Example Queries (for reference):
+{example_queries}
+
 Query Plan (from Decomposer):
 {query_plan}
 
@@ -61,6 +67,8 @@ Requirements:
 - Generate syntactically correct {dialect} SQL using dialect-specific syntax
 - Use {dialect}-appropriate functions, operators, and keywords (see dialect guide above)
 - Follow the query plan steps closely
+- Use the provided relationships to construct proper JOIN conditions
+- Reference the example queries as a guide for query patterns and style
 - Use best practices for readability and performance
 - Ensure the query is safe (read-only operations only)
 - Add helpful comments if the query is complex
@@ -81,7 +89,7 @@ def format_refiner_prompt(
 
     Args:
         question: User's natural language question
-        selected_schema: Selected tables and columns
+        selected_schema: Selected tables, columns, relationships, and examples
         query_plan: Query plan from Decomposer
         dialect: Target SQL dialect
 
@@ -96,6 +104,44 @@ def format_refiner_prompt(
         schema_lines.append(f"Table: {table}")
         schema_lines.append(f"  Columns: {', '.join(columns)}")
     schema_str = "\n".join(schema_lines) if schema_lines else "No schema selected"
+
+    # Format relationships
+    relationships = selected_schema.get("relationships", [])
+    if relationships:
+        rel_lines = []
+        for rel in relationships:
+            source = rel.get("from_table", "unknown")
+            target = rel.get("to_table", "unknown")
+
+            rel_desc = f"- {source} → {target}"
+
+            # Add column mappings if available
+            col_mappings = rel.get("join_columns", [])
+            if col_mappings:
+                mapping_strs = [f"{m.get('from')} = {m.get('to')}" for m in col_mappings]
+                rel_desc += f"\n  Join on: {', '.join(mapping_strs)}"
+
+            rel_lines.append(rel_desc)
+        relationships_str = "\n".join(rel_lines)
+    else:
+        relationships_str = "No explicit relationships provided (single table query or implicit joins)"
+
+    # Format example queries
+    example_queries = selected_schema.get("example_queries", [])
+    if example_queries:
+        example_lines = []
+        for i, example in enumerate(example_queries[:3], 1):  # Limit to top 3 examples
+            content = example.get("content", "")
+            metadata = example.get("metadata", {})
+            description = metadata.get("description", "")
+
+            example_lines.append(f"\nExample {i}:")
+            if description:
+                example_lines.append(f"  Description: {description}")
+            example_lines.append(f"  {content[:300]}{'...' if len(content) > 300 else ''}")
+        examples_str = "\n".join(example_lines)
+    else:
+        examples_str = "No example queries available"
 
     # Format query plan
     plan_lines = []
@@ -120,6 +166,8 @@ def format_refiner_prompt(
     return REFINER_USER_PROMPT_TEMPLATE.format(
         question=question,
         selected_schema=schema_str,
+        relationships=relationships_str,
+        example_queries=examples_str,
         query_plan=query_plan_str,
         dialect=dialect,
     )

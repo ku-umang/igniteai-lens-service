@@ -24,7 +24,7 @@ Output Json Format:
   "selected_columns": {
     "table_name": [list of column names]
   },
-  "join_paths": [
+  "relationships": [
     {
       "from_table": "table1",
       "to_table": "table2",
