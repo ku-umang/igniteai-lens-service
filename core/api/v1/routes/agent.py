@@ -130,13 +130,27 @@ async def chat(
                     )
 
             response = AgentResponse(
+                # Classification
+                question_type=result.get("question_type"),
+                classification_confidence=result.get("classification_confidence"),
+                # SQL and execution
                 sql=result["sql"],
+                all_queries=result.get("all_queries"),
                 data=result["data"],
+                all_results=result.get("all_results"),
                 rows_returned=result["rows_returned"],
+                num_queries_executed=result.get("num_queries_executed", 1),
+                # Analysis
+                analysis=result.get("analysis"),
+                insights=result.get("insights"),
+                answer=result.get("answer"),
+                # Metadata
                 execution_time_ms=result["execution_time_ms"],
                 cached=result["cached"],
                 complexity_score=result["complexity_score"],
+                # Visualization
                 visualization_spec=result.get("visualization_spec"),
+                # Status
                 success=result["success"],
                 error_message=result.get("error_message"),
                 message_id=message_id,

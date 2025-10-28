@@ -56,8 +56,10 @@ Table Relationships (Foreign Keys & Join Paths):
 Example Queries (for reference):
 {example_queries}
 
-Query Plan (from Decomposer):
+Query Plan (from Planner):
 {query_plan}
+
+{step_context_section}
 
 Target SQL Dialect: {dialect}
 
@@ -84,14 +86,16 @@ def format_refiner_prompt(
     selected_schema: dict,
     query_plan: dict,
     dialect: str = "postgres",
+    step_context: str = "",
 ) -> str:
     """Format the Refiner agent prompt with query plan.
 
     Args:
         question: User's natural language question
         selected_schema: Selected tables, columns, relationships, and examples
-        query_plan: Query plan from Decomposer
+        query_plan: Query plan from Planner or QueryStep
         dialect: Target SQL dialect
+        step_context: Optional context from previous query results
 
     Returns:
         Formatted prompt string
@@ -163,11 +167,17 @@ def format_refiner_prompt(
 
     query_plan_str = "\n".join(plan_lines)
 
+    # Format step context if provided
+    step_context_section = ""
+    if step_context:
+        step_context_section = f"\n{step_context}\n"
+
     return REFINER_USER_PROMPT_TEMPLATE.format(
         question=question,
         selected_schema=schema_str,
         relationships=relationships_str,
         example_queries=examples_str,
         query_plan=query_plan_str,
+        step_context_section=step_context_section,
         dialect=dialect,
     )

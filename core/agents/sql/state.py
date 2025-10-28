@@ -1,10 +1,34 @@
 import operator
+from enum import Enum
 from typing import Annotated, Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.integrations.schema import DataSourceResponse
+
+
+class QuestionType(str, Enum):
+    """Classification types for user questions."""
+
+    WHAT_IF = "what_if"  # Scenario analysis, "what if X changes?"
+    TREND = "trend"  # Time-based patterns
+    CORRELATION = "correlation"  # Relationships between variables
+    FORECASTING = "forecasting"  # Predict future values
+    COMPARISON = "comparison"  # Compare groups/segments
+    SEGMENTATION = "segmentation"  # Group similar items
+    ANOMALY_DETECTION = "anomaly_detection"  # Find outliers
+    DESCRIPTIVE = "descriptive"  # Basic statistics/summary
+
+
+class QueryStepStatus(str, Enum):
+    """Status of a query step in the execution plan."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class SchemaContext(BaseModel):
@@ -62,6 +86,61 @@ class VisualizationSpec(BaseModel):
     generation_time_ms: float = Field(default=0.0, description="Time taken to generate visualization")
 
 
+class ClassificationResult(BaseModel):
+    """Question classification result from Classifier agent."""
+
+    question_type: QuestionType = Field(..., description="Classified question type")
+    confidence: float = Field(..., description="Classification confidence score (0-1)", ge=0.0, le=1.0)
+    reasoning: str = Field(default="", description="Classification reasoning")
+    characteristics: List[str] = Field(default_factory=list, description="Key characteristics identified")
+
+
+class QueryStep(BaseModel):
+    """Individual query step in an execution plan."""
+
+    step_number: int = Field(..., description="Step number in the plan (1-indexed)")
+    description: str = Field(..., description="Natural language description of this step")
+    purpose: str = Field(..., description="Why this step is needed")
+    depends_on: List[int] = Field(default_factory=list, description="Step numbers this depends on")
+    status: QueryStepStatus = Field(default=QueryStepStatus.PENDING, description="Current status")
+
+    # SQL-specific requirements
+    required_tables: List[str] = Field(default_factory=list, description="Tables needed for this step")
+    aggregations: List[str] = Field(default_factory=list, description="Aggregations needed")
+    filters: List[str] = Field(default_factory=list, description="Filter conditions")
+
+    # Execution results (populated after execution)
+    generated_sql: Optional[GeneratedSQL] = Field(default=None, description="Generated SQL for this step")
+    execution_result: Optional[ExecutionResult] = Field(default=None, description="Execution result")
+    schema_context: Optional[SchemaContext] = Field(default=None, description="Schema context for this step")
+
+
+class ExecutionPlan(BaseModel):
+    """Multi-step execution plan from Planner agent."""
+
+    steps: List[QueryStep] = Field(default_factory=list, description="Ordered list of query steps")
+    current_step_index: int = Field(default=0, description="Index of current step being executed (0-indexed)")
+    is_complete: bool = Field(default=False, description="Whether all steps are completed")
+    requires_iteration: bool = Field(default=False, description="Whether more steps may be added based on results")
+    reasoning: str = Field(default="", description="Overall planning reasoning")
+    strategy: str = Field(default="", description="High-level strategy for answering the question")
+
+
+class AnalysisResult(BaseModel):
+    """Analysis result synthesizing multiple query results."""
+
+    insights: List[str] = Field(default_factory=list, description="Key insights from the analysis")
+    answer: str = Field(..., description="Natural language answer to the original question")
+    supporting_evidence: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Supporting data points and evidence",
+    )
+    confidence: float = Field(default=1.0, description="Confidence in the analysis (0-1)", ge=0.0, le=1.0)
+    recommendations: List[str] = Field(default_factory=list, description="Actionable recommendations (if applicable)")
+    limitations: List[str] = Field(default_factory=list, description="Known limitations or caveats")
+    reasoning: str = Field(default="", description="Analysis reasoning")
+
+
 class ChatMessage(BaseModel):
     """Simplified chat message for conversation history."""
 
@@ -98,17 +177,37 @@ class AgentState(BaseModel):
         description="Metadata from question optimization (changes made, reasoning)",
     )
 
-    # Schema Selection (Selector Agent)
+    # Question Classification (Classifier Agent)
+    classification: Optional[ClassificationResult] = Field(default=None, description="Question classification result")
+
+    # Schema Selection (Selector Agent) - may be populated multiple times for multi-query plans
     schema_context: Optional[SchemaContext] = Field(default=None, description="Selected schema context")
 
-    # Query Planning (Decomposer Agent)
-    query_plan: Optional[QueryPlan] = Field(default=None, description="Logical query plan")
+    # Query Planning (Planner Agent - replaces Decomposer)
+    execution_plan: Optional[ExecutionPlan] = Field(default=None, description="Multi-step execution plan")
+    query_plan: Optional[QueryPlan] = Field(
+        default=None,
+        description="[DEPRECATED] Legacy single query plan - kept for compatibility",
+    )
 
     # SQL Generation (Refiner Agent)
-    generated_sql: Optional[GeneratedSQL] = Field(default=None, description="Generated SQL")
+    generated_sql: Optional[GeneratedSQL] = Field(default=None, description="Generated SQL for current step")
 
-    # Execution
-    execution_result: Optional[ExecutionResult] = Field(default=None, description="Execution result")
+    # Execution - supports both single and multi-query workflows
+    execution_result: Optional[ExecutionResult] = Field(
+        default=None,
+        description="Execution result for current step (or single query in legacy mode)",
+    )
+    query_results: List[ExecutionResult] = Field(
+        default_factory=list,
+        description="All execution results for multi-query plans",
+    )
+
+    # Analysis (Analysis Agent)
+    analysis_result: Optional[AnalysisResult] = Field(
+        default=None,
+        description="Synthesized analysis of multiple query results",
+    )
 
     # Visualization
     visualization_spec: Optional[VisualizationSpec] = Field(default=None, description="Visualization specification")
@@ -156,26 +255,47 @@ class AgentInput(BaseModel):
 class AgentOutput(BaseModel):
     """Output schema for Agent workflow."""
 
-    # Generated SQL
-    sql: str = Field(..., description="Generated SQL query")
+    # Classification
+    question_type: Optional[str] = Field(default=None, description="Classified question type")
+    classification_confidence: Optional[float] = Field(default=None, description="Classification confidence score")
+
+    # Generated SQL (may be multiple for multi-query plans)
+    sql: str = Field(..., description="Generated SQL query (primary or last query)")
+    all_queries: Optional[List[str]] = Field(default=None, description="All SQL queries executed (for multi-query plans)")
     dialect: str = Field(default="postgres", description="SQL dialect")
 
     # Results (if executed)
     data: Optional[List[Dict[str, Any]]] = Field(default=None, description="Query results (if executed)")
     rows_returned: int = Field(default=0, description="Number of rows returned")
+    all_results: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="All query results for multi-query plans",
+    )
+
+    # Analysis (for multi-query workflows)
+    analysis: Optional[Dict[str, Any]] = Field(default=None, description="Synthesized analysis result")
+    insights: Optional[List[str]] = Field(default=None, description="Key insights from analysis")
+    answer: Optional[str] = Field(default=None, description="Natural language answer to the question")
 
     # Visualization
     visualization_spec: Optional[Dict[str, Any]] = Field(default=None, description="Chart visualization specification")
 
     # Reasoning (if explain_mode=True)
+    classification_reasoning: Optional[str] = Field(default=None, description="Classifier agent reasoning")
     schema_selection_reasoning: Optional[str] = Field(default=None, description="Selector agent reasoning")
-    decomposition_reasoning: Optional[str] = Field(default=None, description="Decomposer agent reasoning")
+    planning_reasoning: Optional[str] = Field(default=None, description="Planner agent reasoning")
+    decomposition_reasoning: Optional[str] = Field(
+        default=None,
+        description="[DEPRECATED] Decomposer agent reasoning - use planning_reasoning",
+    )
     refinement_reasoning: Optional[str] = Field(default=None, description="Refiner agent reasoning")
+    analysis_reasoning: Optional[str] = Field(default=None, description="Analysis agent reasoning")
 
     # Metadata
     execution_time_ms: float = Field(default=0.0, description="Total execution time")
     cached: bool = Field(default=False, description="Result from cache")
     complexity_score: float = Field(default=0.0, description="Query complexity score")
+    num_queries_executed: int = Field(default=1, description="Number of queries executed")
 
     # Validation
     is_valid: bool = Field(default=True, description="SQL validation status")

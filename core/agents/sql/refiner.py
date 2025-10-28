@@ -32,7 +32,9 @@ class RefinerAgent:
         self.llm = llm_config.get_llm()
 
     async def refine_to_sql(self, state: AgentState) -> Dict[str, Any]:
-        """Generate executable SQL from query plan.
+        """Generate executable SQL from query plan or execution plan step.
+
+        Supports both legacy single-query mode (query_plan) and new multi-query mode (execution_plan).
 
         Args:
             state: Current workflow state
@@ -45,67 +47,24 @@ class RefinerAgent:
             "refiner_agent.refine_to_sql",
             attributes={
                 "question": state.user_question,
-                "complexity": state.query_plan.complexity_score if state.query_plan else 0,
+                "has_execution_plan": state.execution_plan is not None,
+                "has_query_plan": state.query_plan is not None,
             },
         ) as span:
             question_to_use = state.optimized_question or state.user_question
             try:
-                if not state.schema_context or not state.query_plan:
-                    raise ValueError("Schema context and query plan required")
+                if not state.schema_context:
+                    raise ValueError("Schema context required")
 
-                logger.info(
-                    "Refiner agent starting",
-                    extra={"question": question_to_use},
-                )
-
-                # Extract selected schema info for the prompt
-                selected_schema = self._extract_selected_schema(state)
-
-                # Convert query plan to dict for prompt
-                query_plan_dict = {
-                    "steps": state.query_plan.steps,
-                    "join_strategy": state.query_plan.join_strategy,
-                    "aggregations": state.query_plan.aggregations,
-                    "filters": state.query_plan.filters,
-                }
-
-                # Get SQL dialect from state (resolved from datasource)
-                dialect = state.dialect
-
-                logger.debug(
-                    "Using SQL dialect for generation",
-                    extra={"dialect": dialect},
-                )
-
-                # Use LLM to generate SQL
-                sql_dict = await self._llm_generate_sql(
-                    question=question_to_use,
-                    selected_schema=selected_schema,
-                    query_plan=query_plan_dict,
-                    dialect=dialect,
-                )
-
-                # Build GeneratedSQL
-                generated_sql = GeneratedSQL(
-                    sql=sql_dict.get("sql", ""),
-                    dialect=sql_dict.get("dialect", dialect),
-                    is_valid=True,  # Will be validated by validator
-                    validation_errors=[],
-                    reasoning=sql_dict.get("reasoning", ""),
-                )
-
-                span.set_attribute("sql_length", len(generated_sql.sql))
-
-                logger.info(
-                    "Refiner agent completed",
-                    extra={"sql_length": len(generated_sql.sql)},
-                )
-
-                return {
-                    "generated_sql": generated_sql,
-                    "llm_calls": state.llm_calls + 1,
-                    "current_step": "validator",
-                }
+                # Determine which planning mode we're in
+                if state.execution_plan:
+                    # New multi-step mode
+                    return await self._refine_execution_plan_step(state, question_to_use, span)
+                elif state.query_plan:
+                    # Legacy single-query mode
+                    return await self._refine_query_plan(state, question_to_use, span)
+                else:
+                    raise ValueError("Either execution_plan or query_plan required")
 
             except Exception as e:
                 logger.error(
@@ -119,6 +78,198 @@ class RefinerAgent:
                     "errors": [f"Refiner agent error: {str(e)}"],
                     "current_step": "error",
                 }
+
+    async def _refine_execution_plan_step(self, state: AgentState, question: str, span: Any) -> Dict[str, Any]:
+        """Generate SQL for current step in execution plan.
+
+        Args:
+            state: Current workflow state
+            question: User's question
+            span: OpenTelemetry span
+
+        Returns:
+            Updated state dict
+
+        """
+        execution_plan = state.execution_plan
+        if not execution_plan or not execution_plan.steps:
+            raise ValueError("Execution plan has no steps")
+
+        # Get current step
+        current_index = execution_plan.current_step_index
+        if current_index >= len(execution_plan.steps):
+            raise ValueError(f"Invalid step index: {current_index} >= {len(execution_plan.steps)}")
+
+        current_step = execution_plan.steps[current_index]
+
+        logger.info(
+            "Refiner agent starting (execution plan mode)",
+            extra={
+                "question": question,
+                "step_number": current_step.step_number,
+                "step_description": current_step.description,
+            },
+        )
+
+        # Extract selected schema
+        selected_schema = self._extract_selected_schema(state)
+
+        # Convert QueryStep to query plan dict for prompt
+        query_plan_dict = {
+            "steps": [current_step.description, current_step.purpose],
+            "join_strategy": None,  # Will be inferred from tables
+            "aggregations": current_step.aggregations,
+            "filters": current_step.filters,
+        }
+
+        # Include context from previous results if this step depends on others
+        previous_results_context = self._get_previous_results_context(state, current_step)
+
+        # Get SQL dialect
+        dialect = state.dialect
+
+        logger.debug(
+            "Using SQL dialect for generation",
+            extra={"dialect": dialect, "step": current_step.step_number},
+        )
+
+        # Use LLM to generate SQL for this step
+        sql_dict = await self._llm_generate_sql(
+            question=question,
+            selected_schema=selected_schema,
+            query_plan=query_plan_dict,
+            dialect=dialect,
+            step_context=previous_results_context,
+        )
+
+        # Build GeneratedSQL
+        generated_sql = GeneratedSQL(
+            sql=sql_dict.get("sql", ""),
+            dialect=sql_dict.get("dialect", dialect),
+            is_valid=True,  # Will be validated by validator
+            validation_errors=[],
+            reasoning=sql_dict.get("reasoning", ""),
+        )
+
+        span.set_attribute("sql_length", len(generated_sql.sql))
+        span.set_attribute("step_number", current_step.step_number)
+
+        logger.info(
+            "Refiner agent completed",
+            extra={
+                "sql_length": len(generated_sql.sql),
+                "step_number": current_step.step_number,
+            },
+        )
+
+        return {
+            "generated_sql": generated_sql,
+            "llm_calls": state.llm_calls + 1,
+            "current_step": "validator",
+        }
+
+    async def _refine_query_plan(self, state: AgentState, question: str, span: Any) -> Dict[str, Any]:
+        """Generate SQL for legacy query plan (backward compatibility).
+
+        Args:
+            state: Current workflow state
+            question: User's question
+            span: OpenTelemetry span
+
+        Returns:
+            Updated state dict
+
+        """
+        query_plan = state.query_plan
+        if not query_plan:
+            raise ValueError("Query plan required")
+
+        logger.info(
+            "Refiner agent starting (legacy query plan mode)",
+            extra={"question": question},
+        )
+
+        # Extract selected schema info for the prompt
+        selected_schema = self._extract_selected_schema(state)
+
+        # Convert query plan to dict for prompt
+        query_plan_dict = {
+            "steps": query_plan.steps,
+            "join_strategy": query_plan.join_strategy,
+            "aggregations": query_plan.aggregations,
+            "filters": query_plan.filters,
+        }
+
+        # Get SQL dialect from state (resolved from datasource)
+        dialect = state.dialect
+
+        logger.debug(
+            "Using SQL dialect for generation",
+            extra={"dialect": dialect},
+        )
+
+        # Use LLM to generate SQL
+        sql_dict = await self._llm_generate_sql(
+            question=question,
+            selected_schema=selected_schema,
+            query_plan=query_plan_dict,
+            dialect=dialect,
+        )
+
+        # Build GeneratedSQL
+        generated_sql = GeneratedSQL(
+            sql=sql_dict.get("sql", ""),
+            dialect=sql_dict.get("dialect", dialect),
+            is_valid=True,  # Will be validated by validator
+            validation_errors=[],
+            reasoning=sql_dict.get("reasoning", ""),
+        )
+
+        span.set_attribute("sql_length", len(generated_sql.sql))
+
+        logger.info(
+            "Refiner agent completed",
+            extra={"sql_length": len(generated_sql.sql)},
+        )
+
+        return {
+            "generated_sql": generated_sql,
+            "llm_calls": state.llm_calls + 1,
+            "current_step": "validator",
+        }
+
+    def _get_previous_results_context(self, state: AgentState, current_step: Any) -> str:
+        """Get context from previous query results for dependent steps.
+
+        Args:
+            state: Current workflow state
+            current_step: Current QueryStep being executed
+
+        Returns:
+            Context string describing previous results
+
+        """
+        if not current_step.depends_on or not state.query_results:
+            return ""
+
+        context_lines = ["Previous query results (for context):"]
+
+        for dep_step_num in current_step.depends_on:
+            # Find result for that step (0-indexed in list, but step numbers are 1-indexed)
+            result_idx = dep_step_num - 1
+            if 0 <= result_idx < len(state.query_results):
+                result = state.query_results[result_idx]
+                if result.success:
+                    context_lines.append(f"\nStep {dep_step_num} returned {result.rows_returned} rows")
+                    # Include sample data structure
+                    if result.rows:
+                        sample_row = result.rows[0]
+                        columns = list(sample_row.keys())[:5]
+                        context_lines.append(f"  Columns: {', '.join(columns)}")
+                else:
+                    context_lines.append(f"\nStep {dep_step_num} failed: {result.error_message}")
+
+        return "\n".join(context_lines)
 
     def _extract_selected_schema(self, state: AgentState) -> Dict[str, Any]:
         """Extract selected schema from state.
@@ -166,14 +317,16 @@ class RefinerAgent:
         selected_schema: Dict[str, Any],
         query_plan: Dict[str, Any],
         dialect: str = "postgres",
+        step_context: str = "",
     ) -> Dict[str, Any]:
         """Use LLM to generate SQL from query plan.
 
         Args:
             question: User's natural language question
             selected_schema: Selected tables and columns
-            query_plan: Query plan from Decomposer
+            query_plan: Query plan from Decomposer or QueryStep
             dialect: Target SQL dialect
+            step_context: Optional context from previous query results
 
         Returns:
             Generated SQL dict
@@ -185,6 +338,7 @@ class RefinerAgent:
             selected_schema=selected_schema,
             query_plan=query_plan,
             dialect=dialect,
+            step_context=step_context,
         )
 
         # Call LLM

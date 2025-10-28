@@ -67,15 +67,34 @@ class GenerateSQLResponse(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    """Response schema for SQL execution."""
+    """Response schema for SQL execution with advanced analytics."""
 
-    sql: str = Field(..., description="Generated SQL query")
-    data: Optional[List[Dict[str, Any]]] = Field(None, description="Query results")
+    # Classification
+    question_type: Optional[str] = Field(None, description="Classified question type (trend, comparison, etc.)")
+    classification_confidence: Optional[float] = Field(None, description="Classification confidence score (0-1)")
+
+    # SQL and execution
+    sql: str = Field(..., description="Generated SQL query (primary or last query)")
+    all_queries: Optional[List[str]] = Field(None, description="All SQL queries executed (for multi-query plans)")
+    data: Optional[List[Dict[str, Any]]] = Field(None, description="Query results (primary or last query)")
+    all_results: Optional[List[Dict[str, Any]]] = Field(None, description="All query results (for multi-query plans)")
     rows_returned: int = Field(default=0, description="Number of rows returned")
+    num_queries_executed: int = Field(default=1, description="Number of queries executed")
+
+    # Analysis (for multi-query workflows)
+    analysis: Optional[Dict[str, Any]] = Field(None, description="Synthesized analysis result")
+    insights: Optional[List[str]] = Field(None, description="Key insights from analysis")
+    answer: Optional[str] = Field(None, description="Natural language answer to the question")
+
+    # Metadata
     execution_time_ms: float = Field(default=0.0, description="Total execution time in milliseconds")
     cached: bool = Field(default=False, description="Whether results came from cache")
     complexity_score: float = Field(default=0.0, description="Query complexity score (0-1)")
+
+    # Visualization
     visualization_spec: Optional[Dict[str, Any]] = Field(None, description="Plotly chart specification")
+
+    # Status
     success: bool = Field(default=True, description="Overall success status")
     error_message: Optional[str] = Field(None, description="Error message if failed")
     message_id: Optional[UUID] = Field(None, description="Message ID of saved chat interaction")

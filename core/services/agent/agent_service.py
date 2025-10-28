@@ -4,7 +4,7 @@ from uuid import UUID
 from opentelemetry import trace
 
 from core.agents.sql.state import AgentInput, AgentOutput, ChatMessage
-from core.agents.sql.workflow import AgentWorkflow
+from core.agents.workflow import AgentWorkflow
 from core.logging import get_logger
 
 logger = get_logger(__name__)
