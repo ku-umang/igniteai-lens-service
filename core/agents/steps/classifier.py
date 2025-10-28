@@ -9,7 +9,7 @@ from core.agents.prompts.classifier import (
     CLASSIFIER_SYSTEM_PROMPT,
     format_classifier_prompt,
 )
-from core.agents.sql.state import AgentState, ClassificationResult, QuestionType
+from core.agents.state import AgentState, ClassificationResult, QuestionType
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -31,14 +31,14 @@ class ClassifierAgent:
         """Initialize the Classifier agent."""
         self.llm = llm_config.get_llm()
 
-    async def classify_question(self, state: AgentState) -> Dict[str, Any]:
+    async def classify_question(self, state: AgentState) -> AgentState:
         """Classify the user's question into an analytical type.
 
         Args:
             state: Current workflow state
 
         Returns:
-            Updated state dict with classification populated
+            Updated state with classification populated
 
         """
         with tracer.start_as_current_span(
@@ -56,10 +56,7 @@ class ClassifierAgent:
 
                 logger.info(
                     "Classifier agent starting",
-                    extra={
-                        "question": question_to_classify,
-                        "has_optimized": state.optimized_question is not None,
-                    },
+                    extra={"question": question_to_classify},
                 )
 
                 # Use LLM to classify the question
@@ -73,8 +70,7 @@ class ClassifierAgent:
                 classification = ClassificationResult(
                     question_type=QuestionType(classification_result["question_type"]),
                     confidence=classification_result["confidence"],
-                    reasoning=classification_result.get("reasoning", ""),
-                    characteristics=classification_result.get("characteristics", []),
+                    reasoning=classification_result["reasoning"],
                 )
 
                 span.set_attribute("question_type", classification.question_type.value)
@@ -91,12 +87,11 @@ class ClassifierAgent:
                     },
                 )
 
-                return {
-                    "classification": classification,
-                    "total_time_ms": state.total_time_ms + classification_time,
-                    "llm_calls": state.llm_calls + 1,
-                    "current_step": "planner",
-                }
+                state.classification = classification
+                state.total_time_ms = state.total_time_ms + classification_time
+                state.llm_calls = state.llm_calls + 1
+                state.current_step = "query_classifier"
+                return state
 
             except Exception as e:
                 logger.error(
@@ -111,14 +106,12 @@ class ClassifierAgent:
                     question_type=QuestionType.DESCRIPTIVE,
                     confidence=0.5,
                     reasoning=f"Classification failed: {str(e)}. Defaulting to descriptive.",
-                    characteristics=["fallback"],
                 )
 
-                return {
-                    "classification": fallback_classification,
-                    "errors": [f"Classifier agent error: {str(e)}"],
-                    "current_step": "planner",
-                }
+                state.classification = fallback_classification
+                state.errors = [f"Classifier agent error: {str(e)}"]
+                state.current_step = "query_classifier"
+                return state
 
     async def _llm_classify_question(
         self,
@@ -156,21 +149,21 @@ class ClassifierAgent:
             # Fix improperly escaped single quotes in JSON strings (\' -> ')
             content = content.replace(r"\'", "'")
 
-            classification = json.loads(content)
+            classification_result = json.loads(content)
 
             # Validate required fields
-            if "question_type" not in classification or "confidence" not in classification:
+            if "question_type" not in classification_result or "confidence" not in classification_result:
                 raise ValueError("Missing required fields in classification response")
 
             # Validate question_type is one of our enum values
             valid_types = [qt.value for qt in QuestionType]
-            if classification["question_type"] not in valid_types:
-                raise ValueError(f"Invalid question_type: {classification['question_type']}")
+            if classification_result["question_type"] not in valid_types:
+                raise ValueError(f"Invalid question_type: {classification_result['question_type']}")
 
             # Ensure confidence is in valid range
-            classification["confidence"] = max(0.0, min(1.0, float(classification["confidence"])))
+            classification_result["confidence"] = max(0.0, min(1.0, float(classification_result["confidence"])))
 
-            return classification
+            return classification_result
 
         except (json.JSONDecodeError, KeyError, ValueError, AttributeError) as e:
             logger.error(
@@ -182,5 +175,4 @@ class ClassifierAgent:
                 "question_type": "descriptive",
                 "confidence": 0.5,
                 "reasoning": f"Failed to parse LLM response: {str(e)}. Defaulting to descriptive type.",
-                "characteristics": ["parsing_error"],
             }

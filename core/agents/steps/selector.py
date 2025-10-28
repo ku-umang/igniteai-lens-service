@@ -9,7 +9,7 @@ from core.agents.prompts.selector import (
     SELECTOR_SYSTEM_PROMPT,
     format_selector_prompt,
 )
-from core.agents.sql.state import AgentState, SchemaContext
+from core.agents.state import AgentState, SchemaContext
 from core.integrations.platform_client import PlatformClient
 from core.integrations.schema import RetrievalResponse
 from core.llm_config import llm_config
@@ -32,14 +32,14 @@ class SelectorAgent:
         """Initialize the Selector agent."""
         self.llm = llm_config.get_llm()
 
-    async def select_schema(self, state: AgentState) -> Dict[str, Any]:
+    async def select_schema(self, state: AgentState) -> AgentState:
         """Select relevant schema for the user's question.
 
         Args:
             state: Current workflow state
 
         Returns:
-            Updated state dict with schema_context populated
+            Updated state with schema_context populated
 
         """
         # Use optimized question if available, otherwise fall back to original
@@ -49,22 +49,13 @@ class SelectorAgent:
             "selector_agent.select_schema",
             attributes={
                 "question": question_to_use,
-                "original_question": state.user_question,
                 "datasource_id": str(state.datasource_id),
-                "tenant_id": str(state.tenant_id),
             },
         ) as span:
             start_time = time.time()
 
             try:
-                logger.info(
-                    "Selector agent starting",
-                    extra={
-                        "question": question_to_use,
-                        "original_question": state.user_question,
-                        "datasource_id": str(state.datasource_id),
-                    },
-                )
+                logger.info("Selector agent starting")
 
                 # Step 1: Retrieve schema from platform service
                 retrieval_result = await self._retrieve_schema(
@@ -74,18 +65,18 @@ class SelectorAgent:
                 )
 
                 # Step 2: Use LLM to select minimal schema
-                selection = await self._llm_select_schema(
+                selection_result = await self._llm_select_schema(
                     question=question_to_use,
                     retrieval_result=retrieval_result,
                 )
 
                 # Step 3: Build SchemaContext
                 schema_context = SchemaContext(
-                    tables=selection.get("selected_tables_full", []),
-                    columns=selection.get("selected_columns_full", []),
-                    relationships=selection.get("relationships", []),
-                    example_queries=retrieval_result.get("example_queries", []),
-                    reasoning=selection.get("reasoning", ""),
+                    tables=selection_result["selected_tables"],
+                    columns=selection_result["selected_columns"],
+                    relationships=selection_result["relationships"],
+                    example_queries=retrieval_result["example_queries"],
+                    reasoning=selection_result["reasoning"],
                 )
 
                 retrieval_time = (time.time() - start_time) * 1000
@@ -102,12 +93,11 @@ class SelectorAgent:
                     },
                 )
 
-                return {
-                    "schema_context": schema_context,
-                    "retrieval_time_ms": retrieval_time,
-                    "llm_calls": state.llm_calls + 1,
-                    "current_step": "decomposer",
-                }
+                state.schema_context = schema_context
+                state.total_time_ms = state.total_time_ms + retrieval_time
+                state.llm_calls = state.llm_calls + 1
+                state.current_step = "schema_selector"
+                return state
 
             except Exception as e:
                 logger.error(
@@ -117,10 +107,7 @@ class SelectorAgent:
                         "question": state.user_question,
                     },
                 )
-                return {
-                    "errors": [f"Selector agent error: {str(e)}"],
-                    "current_step": "error",
-                }
+                raise Exception(f"Selector agent error: {str(e)}") from e
 
     async def _retrieve_schema(
         self,
@@ -150,27 +137,41 @@ class SelectorAgent:
             retrieval_response = RetrievalResponse.model_validate(result)
 
             # Convert to dict format expected by the selector
-            return {
-                "tables": [
-                    {"content": t.content, "qualified_name": t.metadata["qualified_name"], "metadata": t.metadata}
-                    for t in retrieval_response.tables
-                ],
-                "columns": [
-                    col
-                    for table in retrieval_response.tables
-                    for col in [{"content": c.content, "score": c.score, "metadata": c.metadata} for c in table.columns]
-                ],
-                "relationships": [
+            tables = []
+            columns = []
+            relationships = []
+
+            for table in retrieval_response.tables:
+                tables.append(
                     {
-                        "source_table": rel.source_table,
-                        "target_table": rel.target_table,
-                        "relationship_type": rel.relationship_type,
-                        "join_hint": rel.join_hint,
-                        "column_mappings": rel.column_mappings,
+                        "content": table.content,
+                        "table_qualified_name": table.metadata["qualified_name"],
+                        "metadata": table.metadata,
                     }
-                    for table in retrieval_response.tables
-                    for rel in table.related_tables
-                ],
+                )
+                for column in table.columns:
+                    columns.append(
+                        {
+                            "content": column.content,
+                            "table_qualified_name": column.metadata["table_qualified_name"],
+                            "metadata": column.metadata,
+                        }
+                    )
+                for relationship in table.related_tables:
+                    relationships.append(
+                        {
+                            "source_table": relationship.source_table,
+                            "target_table": relationship.target_table,
+                            "relationship_type": relationship.relationship_type,
+                            "join_hint": relationship.join_hint,
+                            "column_mappings": relationship.column_mappings,
+                        }
+                    )
+
+            return {
+                "tables": tables,
+                "columns": columns,
+                "relationships": relationships,
                 "example_queries": [
                     {"content": query.content, "metadata": query.metadata} for query in retrieval_response.example_queries
                 ],
@@ -222,31 +223,22 @@ class SelectorAgent:
             selection = json.loads(content)
 
             # Enrich selection with full metadata from retrieval
-            selection["selected_tables_full"] = [
+            selection["selected_tables"] = [
                 table
                 for table in retrieval_result.get("tables", [])
-                if table.get("metadata", {}).get("table_name") in selection.get("selected_tables", [])
+                if table["table_qualified_name"] in selection.get("selected_tables", [])
             ]
 
-            selection["selected_columns_full"] = []
+            selected_columns = []
             for col in retrieval_result.get("columns", []):
-                for table_name, columns in selection.get("selected_columns", {}).items():
-                    if (
-                        col.get("metadata", {}).get("table_qualified_name", "").split(".")[1] == table_name
-                        and col.get("metadata", {}).get("column_name") in columns
-                    ):
-                        selection["selected_columns_full"].append(col)
+                for table_qualified_name, columns in selection.get("selected_columns", {}).items():
+                    if col["table_qualified_name"] == table_qualified_name and col["metadata"]["column_name"] in columns:
+                        selected_columns.append(col)
+
+            selection["selected_columns"] = selected_columns
 
             return selection
 
         except (json.JSONDecodeError, KeyError, AttributeError) as e:
             logger.error("Failed to parse LLM response", extra={"error": str(e), "response": str(response)})
-            # Fallback: return all retrieved schema
-            return {
-                "selected_tables": [t.get("metadata", {}).get("table_name") for t in retrieval_result.get("tables", [])],
-                "selected_columns": {},
-                "relationships": retrieval_result.get("relationships", []),
-                "reasoning": f"Failed to parse LLM response, using all retrieved schema. Error: {str(e)}",
-                "selected_tables_full": retrieval_result.get("tables", []),
-                "selected_columns_full": retrieval_result.get("columns", []),
-            }
+            raise Exception(f"Failed to select relevant schema: {str(e)}") from e

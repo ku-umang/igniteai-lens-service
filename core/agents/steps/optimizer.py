@@ -9,7 +9,7 @@ from core.agents.prompts.optimizer import (
     OPTIMIZER_SYSTEM_PROMPT,
     format_optimizer_prompt,
 )
-from core.agents.sql.state import AgentState
+from core.agents.state import AgentState
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -31,7 +31,7 @@ class OptimizerAgent:
         """Initialize the Optimizer agent."""
         self.llm = llm_config.get_llm()
 
-    async def optimize_question(self, state: AgentState) -> Dict[str, Any]:
+    async def optimize_question(self, state: AgentState) -> AgentState:
         """Optimize the user's question using conversation history.
 
         Args:
@@ -65,17 +65,12 @@ class OptimizerAgent:
                     logger.info("No chat history, skipping optimization")
                     optimization_time = (time.time() - start_time) * 1000
 
-                    return {
-                        "original_question": state.user_question,
-                        "optimized_question": state.user_question,
-                        "optimization_metadata": {
-                            "changes_made": [],
-                            "reasoning": "No conversation history available",
-                        },
-                        "total_time_ms": state.total_time_ms + optimization_time,
-                        "llm_calls": state.llm_calls,
-                        "current_step": "selector",
-                    }
+                    state.optimized_question = state.user_question
+                    state.optimization_reasoning = "No conversation history available"
+                    state.total_time_ms = state.total_time_ms + optimization_time
+                    state.llm_calls = state.llm_calls
+                    state.current_step = "query_optimizer"
+                    return state
 
                 # Use LLM to optimize the question
                 optimization_result = await self._llm_optimize_question(
@@ -86,29 +81,22 @@ class OptimizerAgent:
                 optimization_time = (time.time() - start_time) * 1000
 
                 span.set_attribute("optimized_question", optimization_result["optimized_question"])
-                span.set_attribute("changes_count", len(optimization_result.get("changes_made", [])))
 
                 logger.info(
                     "Optimizer agent completed",
                     extra={
                         "original_question": state.user_question,
                         "optimized_question": optimization_result["optimized_question"],
-                        "changes_made": optimization_result.get("changes_made", []),
                         "optimization_time_ms": optimization_time,
                     },
                 )
 
-                return {
-                    "original_question": state.user_question,
-                    "optimized_question": optimization_result["optimized_question"],
-                    "optimization_metadata": {
-                        "changes_made": optimization_result.get("changes_made", []),
-                        "reasoning": optimization_result.get("reasoning", ""),
-                    },
-                    "total_time_ms": state.total_time_ms + optimization_time,
-                    "llm_calls": state.llm_calls + 1,
-                    "current_step": "selector",
-                }
+                state.optimized_question = optimization_result["optimized_question"]
+                state.optimization_reasoning = optimization_result["reasoning"]
+                state.total_time_ms = state.total_time_ms + optimization_time
+                state.llm_calls = state.llm_calls + 1
+                state.current_step = "query_optimizer"
+                return state
 
             except Exception as e:
                 logger.error(
@@ -119,16 +107,11 @@ class OptimizerAgent:
                     },
                 )
                 # On error, proceed with original question
-                return {
-                    "original_question": state.user_question,
-                    "optimized_question": state.user_question,
-                    "optimization_metadata": {
-                        "changes_made": [],
-                        "reasoning": f"Optimization failed: {str(e)}",
-                    },
-                    "errors": [f"Optimizer agent error: {str(e)}"],
-                    "current_step": "selector",
-                }
+                state.optimized_question = state.user_question
+                state.optimization_reasoning = f"Optimization failed: {str(e)}"
+                state.errors = [f"Optimizer agent error: {str(e)}"]
+                state.current_step = "query_optimizer"
+                return state
 
     async def _llm_optimize_question(
         self,
@@ -182,6 +165,5 @@ class OptimizerAgent:
             # Fallback: return original question
             return {
                 "optimized_question": current_question,
-                "changes_made": [],
                 "reasoning": f"Failed to parse LLM response: {str(e)}",
             }

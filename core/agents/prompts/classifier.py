@@ -64,7 +64,6 @@ Output JSON Format:
   "question_type": "one of: what_if, trend, correlation, forecasting, comparison, segmentation, anomaly_detection, descriptive",
   "confidence": 0.95,
   "reasoning": "Brief explanation of why this classification was chosen",
-  "characteristics": ["key feature 1", "key feature 2", "key feature 3"]
 }
 ```
 """

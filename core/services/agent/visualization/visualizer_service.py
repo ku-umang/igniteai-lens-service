@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 from opentelemetry import trace
 
-from core.agents.sql.state import ExecutionResult
-from core.agents.sql.visualizer import VisualizationAgent
+from core.agents.state import ExecutionResult
+from core.agents.steps import VisualizationAgent
 from core.logging import get_logger
 from core.services.agent.visualization.aggregation_engine import AggregationEngine
 from core.services.agent.visualization.chart_selector import ChartSelector

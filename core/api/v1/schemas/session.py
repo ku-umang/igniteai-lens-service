@@ -1,6 +1,7 @@
 """Pydantic schemas for session API."""
 
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -76,3 +77,20 @@ class SessionFilter(BaseModel):
         default=None,
         description="Filter by LLM config ID",
     )
+
+
+class ChatMessageResponse(BaseModel):
+    """Response schema for a chat message."""
+
+    id: UUID = Field(..., description="Message ID")
+    session_id: UUID = Field(..., description="Session ID")
+    question: str = Field(..., description="User's question")
+    sql: Optional[str] = Field(None, description="Generated SQL (null if generation failed)")
+    created_at: datetime = Field(..., description="Message creation timestamp")
+
+
+class ChatHistoryResponse(BaseModel):
+    """Response schema for chat history."""
+
+    messages: List[ChatMessageResponse] = Field(..., description="List of chat messages")
+    total: int = Field(..., description="Total number of messages in session")

@@ -20,7 +20,7 @@ Guidelines:
 Output Json Format:
 ```json
 {
-  "selected_tables": [list of table names],
+  "selected_tables": [list of table qualified names],
   "selected_columns": {
     "table_name": [list of column names]
   },
@@ -71,8 +71,7 @@ def format_selector_prompt(question: str, tables: list, columns: list, relations
     # Format tables
     tables_info = []
     for table in tables:
-        table_meta = table.get("metadata", {})
-        tables_info.append(f"- {table_meta.get('table_name', 'unknown')}: {table_meta.get('description', 'No description')}")
+        tables_info.append(f"- {table['table_qualified_name']}: {table['content']}")
     tables_str = "\n".join(tables_info) if tables_info else "No tables retrieved"
 
     # Format columns
@@ -80,8 +79,8 @@ def format_selector_prompt(question: str, tables: list, columns: list, relations
     for col in columns:
         col_meta = col.get("metadata", {})
         columns_info.append(
-            f"- {col_meta.get('table_name', 'unknown')}.{col_meta.get('column_name', 'unknown')}: "
-            f"{col_meta.get('data_type', 'unknown')} - {col_meta.get('description', 'No description')}"
+            f"- {col['table_qualified_name']}.{col_meta.get('column_name', 'unknown')}: "
+            f"{col_meta.get('data_type', 'unknown')} - sample_values: {col_meta.get('sample_values', [])}"
         )
     columns_str = "\n".join(columns_info) if columns_info else "No columns retrieved"
 

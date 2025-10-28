@@ -9,7 +9,7 @@ from core.agents.prompts.analyzer import (
     ANALYZER_SYSTEM_PROMPT,
     format_analyzer_prompt,
 )
-from core.agents.sql.state import AgentState, AnalysisResult
+from core.agents.state import AgentState, AnalysisResult
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -18,10 +18,10 @@ tracer = trace.get_tracer(__name__)
 
 
 class AnalysisAgent:
-    """Analysis agent for synthesizing insights from multiple query results.
+    """Analysis agent for synthesizing insights from query result.
 
     This agent:
-    1. Receives one or more query execution results
+    1. Receives the single query execution result
     2. Analyzes the data based on question classification
     3. Synthesizes insights and generates a comprehensive answer
     4. Provides supporting evidence and recommendations
@@ -32,14 +32,14 @@ class AnalysisAgent:
         """Initialize the Analysis agent."""
         self.llm = llm_config.get_llm()
 
-    async def analyze_results(self, state: AgentState) -> Dict[str, Any]:
+    async def analyze_results(self, state: AgentState) -> AgentState:
         """Analyze query results and generate insights.
 
         Args:
             state: Current workflow state with query results
 
         Returns:
-            Updated state dict with analysis_result populated
+            Updated state with analysis_result populated
 
         """
         with tracer.start_as_current_span(
@@ -47,7 +47,7 @@ class AnalysisAgent:
             attributes={
                 "question": state.optimized_question or state.user_question,
                 "classification": state.classification.question_type.value if state.classification else "none",
-                "num_results": len(state.query_results),
+                "has_result": state.execution_result is not None,
             },
         ) as span:
             start_time = time.time()
@@ -58,42 +58,31 @@ class AnalysisAgent:
                 if not state.classification:
                     raise ValueError("Classification not available")
 
-                if not state.query_results:
-                    raise ValueError("No query results available for analysis")
+                if not state.execution_result:
+                    raise ValueError("No execution result available for analysis")
 
-                logger.info(
-                    "Analysis agent starting",
-                    extra={
-                        "question": question_to_use,
-                        "classification": state.classification.question_type.value,
-                        "num_results": len(state.query_results),
-                    },
-                )
+                logger.info("Analysis agent starting")
 
-                # Prepare query results for analysis
-                results_for_analysis = [
-                    {
-                        "success": result.success,
-                        "rows_returned": result.rows_returned,
-                        "error_message": result.error_message,
-                        "rows": result.rows,
-                        "execution_time_ms": result.execution_time_ms,
-                        "cached": result.cached,
-                    }
-                    for result in state.query_results
-                ]
+                # Prepare query result for analysis
+                result_for_analysis = {
+                    "success": state.execution_result.success,
+                    "rows_returned": state.execution_result.rows_returned,
+                    "error_message": state.execution_result.error_message,
+                    "rows": state.execution_result.rows,
+                    "execution_time_ms": state.execution_result.execution_time_ms,
+                }
 
                 # Get execution plan strategy
                 plan_strategy = ""
                 if state.execution_plan:
-                    plan_strategy = state.execution_plan.strategy or "Multi-step analysis"
+                    plan_strategy = state.execution_plan.strategy or "Single comprehensive query"
 
-                # Use LLM to analyze results
+                # Use LLM to analyze result
                 analysis_dict = await self._llm_analyze_results(
                     question=question_to_use,
                     classification_type=state.classification.question_type.value,
                     plan_strategy=plan_strategy,
-                    query_results=results_for_analysis,
+                    query_result=result_for_analysis,
                 )
 
                 # Create AnalysisResult object
@@ -122,12 +111,11 @@ class AnalysisAgent:
                     },
                 )
 
-                return {
-                    "analysis_result": analysis,
-                    "total_time_ms": state.total_time_ms + analysis_time,
-                    "llm_calls": state.llm_calls + 1,
-                    "current_step": "visualizer",
-                }
+                state.analysis_result = analysis
+                state.total_time_ms = state.total_time_ms + analysis_time
+                state.llm_calls = state.llm_calls + 1
+                state.current_step = "visualizer"
+                return state
 
             except Exception as e:
                 logger.error(
@@ -149,26 +137,25 @@ class AnalysisAgent:
                     reasoning=f"Analysis failed: {str(e)}",
                 )
 
-                return {
-                    "analysis_result": fallback_analysis,
-                    "errors": [f"Analysis agent error: {str(e)}"],
-                    "current_step": "visualizer",
-                }
+                state.analysis_result = fallback_analysis
+                state.errors = [f"Analysis agent error: {str(e)}"]
+                state.current_step = "visualizer"
+                return state
 
     async def _llm_analyze_results(
         self,
         question: str,
         classification_type: str,
         plan_strategy: str,
-        query_results: list,
+        query_result: dict,
     ) -> Dict[str, Any]:
-        """Use LLM to analyze query results and generate insights.
+        """Use LLM to analyze query result and generate insights.
 
         Args:
             question: User's original question
             classification_type: Classified question type
             plan_strategy: High-level strategy from execution plan
-            query_results: List of execution results
+            query_result: Single execution result dict
 
         Returns:
             Analysis dict with answer, insights, evidence, etc.
@@ -179,7 +166,7 @@ class AnalysisAgent:
             question=question,
             classification_type=classification_type,
             plan_strategy=plan_strategy,
-            query_results=query_results,
+            query_result=query_result,
         )
 
         # Call LLM
@@ -223,15 +210,13 @@ class AnalysisAgent:
             )
 
             # Fallback: create basic summary from data
-            total_rows = sum(r.get("rows_returned", 0) for r in query_results if r.get("success"))
+            rows_returned = query_result.get("rows_returned", 0) if query_result.get("success") else 0
 
             return {
-                "answer": f"Analysis parsing failed. Retrieved {total_rows} rows total from {len(query_results)} queries.",
-                "insights": [
-                    f"Query {i + 1} returned {r.get('rows_returned', 0)} rows"
-                    for i, r in enumerate(query_results)
-                    if r.get("success")
-                ],
+                "answer": f"Analysis parsing failed. Retrieved {rows_returned} rows from the query.",
+                "insights": (
+                    [f"Query returned {rows_returned} rows"] if query_result.get("success") else ["Query execution failed"]
+                ),
                 "supporting_evidence": [],
                 "confidence": 0.3,
                 "recommendations": [],

@@ -21,7 +21,6 @@ Output JSON Format:
 ```json
 {
   "optimized_question": "The rewritten question with resolved references and added context",
-  "changes_made": ["list of specific changes/clarifications made"],
   "reasoning": "Brief explanation of why these changes improve the question"
 }
 ```

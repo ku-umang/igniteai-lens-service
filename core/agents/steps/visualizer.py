@@ -10,6 +10,7 @@ from typing import Any, Dict
 from langchain_core.messages import HumanMessage, SystemMessage
 from opentelemetry import trace
 
+from core.agents.prompts.visualizer import VISUALIZER_SYSTEM_PROMPT, format_visualizer_prompt
 from core.llm_config import llm_config
 from core.logging import get_logger
 
@@ -19,30 +20,6 @@ tracer = trace.get_tracer(__name__)
 
 class VisualizationAgent:
     """LLM-powered agent for intelligent visualization decisions."""
-
-    SYSTEM_PROMPT = """You are an expert data visualization consultant. Your task is to analyze data profiles
-and recommend the most appropriate Plotly chart type and configuration.
-
-Given a data profile with column types, statistics, and patterns, you should:
-1. Analyze the data structure and patterns
-2. Select the appropriate chart type: line, bar_vertical, bar_horizontal, grouped_bar, scatter, pie, donut, heatmap, treemap
-3. Provide column mappings for the chart
-4. Give a clear, concise description
-5. Explain your reasoning
-
-Return your response as valid JSON with this structure:
-{
-    "chart_type": "line|bar_vertical|bar_horizontal|grouped_bar|scatter|pie|donut|heatmap|treemap",
-    "config": {
-        "x_col": "column_name",
-        "y_col": "column_name" or "y_cols": ["col1", "col2"],
-        "description": "Brief description of what the chart shows",
-        "additional_params": {}
-    },
-    "reasoning": "Why this chart type was selected"
-}
-
-Focus on clarity, simplicity, and data-driven insights. Avoid overly complex visualizations."""
 
     def __init__(self) -> None:
         """Initialize the visualization agent."""
@@ -68,16 +45,15 @@ Focus on clarity, simplicity, and data-driven insights. Avoid overly complex vis
         with tracer.start_as_current_span("visualization_agent.generate_chart_spec") as span:
             try:
                 # Build prompt with data profile
-                user_prompt = self._build_prompt(profile, sql, question)
+                user_prompt = format_visualizer_prompt(profile, sql, question)
 
                 # Call LLM
                 messages = [
-                    SystemMessage(content=self.SYSTEM_PROMPT),
+                    SystemMessage(content=VISUALIZER_SYSTEM_PROMPT),
                     HumanMessage(content=user_prompt),
                 ]
 
                 response = await self.llm.ainvoke(messages)
-                span.set_attribute("llm_response_length", len(response.content))
 
                 # Parse response
                 chart_spec = self._parse_response(str(response.content))
@@ -96,58 +72,6 @@ Focus on clarity, simplicity, and data-driven insights. Avoid overly complex vis
 
                 # Return fallback specification
                 return self._get_fallback_spec(profile)
-
-    def _build_prompt(
-        self,
-        profile: Dict[str, Any],
-        sql: str,
-        question: str,
-    ) -> str:
-        """Build prompt for LLM with data profile.
-
-        Args:
-            profile: Data profile
-            sql: SQL query
-            question: User question
-
-        Returns:
-            Formatted prompt string
-
-        """
-        # Simplify profile for LLM (remove verbose data)
-        simplified_profile = {
-            "metadata": profile.get("metadata", {}),
-            "columns": [
-                {
-                    "name": c.get("name"),
-                    "type": c.get("type"),
-                    "cardinality": c.get("cardinality"),
-                    "distinct_count": c.get("distinct_count"),
-                }
-                for c in profile.get("columns", [])
-            ],
-            "patterns": profile.get("patterns", []),
-        }
-
-        prompt = f"""Analyze this data and recommend a visualization:
-
-**User Question:** {question}
-
-**SQL Query:** {sql[:300]}...
-
-**Data Profile:**
-```json
-{json.dumps(simplified_profile, indent=2)}
-```
-
-**Instructions:**
-- Select the chart type that best reveals insights
-- Provide clear column mappings
-- Explain your reasoning briefly
-
-Return valid JSON only."""
-
-        return prompt
 
     def _parse_response(self, response_content: str) -> Dict[str, Any]:
         """Parse LLM response and extract chart specification.

@@ -89,3 +89,6 @@ async def verify_session_ownership(
 
     """
     return await verify_session_ownership_helper(session_id, tenant_id, user_id, session_service)
+
+
+SessionServiceDep = Annotated[SessionService, Depends(get_session_service)]

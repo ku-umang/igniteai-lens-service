@@ -44,7 +44,6 @@ class SafeSQLExecutor:
         max_rows: int = 10000,
         timeout_seconds: float = 30.0,
         use_cache: bool = True,
-        cache_ttl: int = 3600,
     ) -> None:
         """Initialize safe SQL executor.
 
@@ -52,13 +51,11 @@ class SafeSQLExecutor:
             max_rows: Maximum rows to return
             timeout_seconds: Query execution timeout
             use_cache: Whether to use caching
-            cache_ttl: Cache TTL in seconds
 
         """
         self.max_rows = max_rows
         self.timeout_seconds = timeout_seconds
         self.use_cache = use_cache
-        self.cache_ttl = cache_ttl
 
     async def execute(
         self,

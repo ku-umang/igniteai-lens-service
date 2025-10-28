@@ -8,11 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from opentelemetry import trace
 
 from core.api.metrics import api_requests_total
-from core.api.v1.schemas.agent import (
+from core.api.v1.schemas.session import (
     ChatHistoryResponse,
     ChatMessageResponse,
-)
-from core.api.v1.schemas.session import (
     SessionCreate,
     SessionResponse,
     SessionUpdate,
@@ -372,7 +370,7 @@ async def get_chat_history(
         ) from e
 
     with tracer.start_as_current_span(
-        "api.agent.get_chat_history",
+        "api.session.get_chat_history",
         attributes={
             "tenant_id": str(tenant_id),
             "session_id": str(session_id),

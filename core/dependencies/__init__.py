@@ -1,3 +1,4 @@
+from .agent import AgentServiceDep
 from .cache import (
     cache_available,
     get_cache,
@@ -6,6 +7,8 @@ from .cache import (
     safe_cache_set,
 )
 from .llm import get_llm
+from .message import MessageServiceDep
+from .session import SessionServiceDep, get_session_service, verify_session_ownership_helper
 
 __all__ = [
     # Cache dependencies
@@ -16,4 +19,12 @@ __all__ = [
     "safe_cache_set",
     # LLM dependencies
     "get_llm",
+    # Session dependencies
+    "get_session_service",
+    "verify_session_ownership_helper",
+    "SessionServiceDep",
+    # Message dependencies
+    "MessageServiceDep",
+    # Agent dependencies
+    "AgentServiceDep",
 ]

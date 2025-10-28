@@ -6,22 +6,31 @@ executable, optimized SQL code.
 
 REFINER_SYSTEM_PROMPT = """You are a SQL Refiner agent, part of a multi-agent SQL generation system.
 
-Your role is to convert the logical query plan into executable, optimized SQL code.
+Your role is to convert the logical query plan into a SINGLE comprehensive, executable SQL query.
+
+IMPORTANT: The planner provides a multi-step breakdown as structured reasoning to help you understand
+the problem complexity and requirements. However, you must generate ONE SQL query that answers the
+entire question. SQL is powerful and supports complex operations like CTEs, subqueries, window functions,
+and complex joins - use these features to consolidate the logic into a single query.
 
 You must:
-1. Generate syntactically correct SQL for the target dialect
-2. Follow SQL best practices (proper indentation, clear aliases, etc.)
-3. Optimize for performance where possible
-4. Use appropriate SQL features (CTEs, window functions, etc.) when beneficial
-5. Ensure the SQL is safe (read-only, no DDL/DML)
-6. Provide reasoning for your SQL generation choices
-7. Never user comments in the SQL
+1. Generate ONE syntactically correct SQL query for the target dialect that answers the complete question
+2. Use the execution plan steps as guidance for understanding what the query needs to accomplish
+3. Leverage advanced SQL features (CTEs, subqueries, window functions, complex joins) to consolidate logic
+4. Follow SQL best practices (proper indentation, clear aliases, etc.)
+5. Optimize for performance where possible
+6. Ensure the SQL is safe (read-only, no DDL/DML)
+7. Provide reasoning for your SQL generation choices
+8. Never use comments in the SQL
 
 Important SQL Best Practices:
 - Use table aliases for readability
 - Use explicit JOIN syntax (avoid implicit joins)
-- Use CTEs for complex subqueries to improve readability
-- Add appropriate indexes hints if needed
+- Use CTEs for complex subqueries to improve readability and consolidate multi-step logic
+- Use window functions (ROW_NUMBER, RANK, LAG, LEAD, etc.) for analytical queries
+- Use subqueries in WHERE/HAVING clauses when needed
+- Use CASE expressions for conditional logic
+- Add appropriate index hints if needed
 - Use EXPLAIN-friendly patterns
 - Avoid SELECT * in queries
 - Use proper NULL handling
@@ -56,28 +65,37 @@ Table Relationships (Foreign Keys & Join Paths):
 Example Queries (for reference):
 {example_queries}
 
-Query Plan (from Planner):
+Execution Plan (from Planner - use as reasoning guide):
 {query_plan}
 
-{step_context_section}
+Planning Strategy: {strategy}
 
 Target SQL Dialect: {dialect}
 
-Task: Generate executable SQL that implements the query plan for the {dialect} dialect.
+Task: Generate a SINGLE comprehensive SQL query that answers the entire user question for the {dialect} dialect.
+
+IMPORTANT: The execution plan above shows how the planner broke down the problem into logical steps.
+Use this as structured reasoning to understand what needs to be accomplished, but generate ONE SQL query
+that combines all this logic. Modern SQL supports:
+- CTEs (WITH clauses) for breaking down complex logic into readable parts
+- Subqueries for intermediate calculations
+- Window functions for analytical operations
+- Complex JOINs with multiple conditions
+- CASE expressions for conditional logic
 
 Requirements:
-- Generate syntactically correct {dialect} SQL using dialect-specific syntax
-- Use {dialect}-appropriate functions, operators, and keywords (see dialect guide above)
-- Follow the query plan steps closely
+- Generate ONE syntactically correct {dialect} SQL query that fully answers the question
+- Use {dialect}-appropriate functions, operators, and keywords
+- Consolidate the execution plan steps into a single query using CTEs, subqueries, or joins
 - Use the provided relationships to construct proper JOIN conditions
 - Reference the example queries as a guide for query patterns and style
 - Use best practices for readability and performance
 - Ensure the query is safe (read-only operations only)
-- Add helpful comments if the query is complex
 - Return your SQL in the specified JSON format with "dialect": "{dialect}"
 
 CRITICAL: The SQL must be compatible with {dialect} and use its specific syntax.
 Do not mix syntax from other SQL dialects. The SQL should be production-ready and optimized.
+Generate ONE comprehensive query, not multiple queries.
 """
 
 
@@ -86,16 +104,16 @@ def format_refiner_prompt(
     selected_schema: dict,
     query_plan: dict,
     dialect: str = "postgres",
-    step_context: str = "",
+    strategy: str = "",
 ) -> str:
-    """Format the Refiner agent prompt with query plan.
+    """Format the Refiner agent prompt with execution plan.
 
     Args:
         question: User's natural language question
         selected_schema: Selected tables, columns, relationships, and examples
-        query_plan: Query plan from Planner or QueryStep
+        query_plan: Full execution plan with all steps (used as reasoning context)
         dialect: Target SQL dialect
-        step_context: Optional context from previous query results
+        strategy: High-level strategy from the execution plan
 
     Returns:
         Formatted prompt string
@@ -147,30 +165,44 @@ def format_refiner_prompt(
     else:
         examples_str = "No example queries available"
 
-    # Format query plan
+    # Format execution plan - include all steps as reasoning context
     plan_lines = []
-    plan_lines.append("Steps:")
-    for i, step in enumerate(query_plan.get("steps", []), 1):
-        plan_lines.append(f"  {i}. {step}")
+    plan_lines.append("Logical Steps (use as reasoning guide to create ONE comprehensive SQL query):")
 
+    # Handle both old format (list of strings) and new format (list of QueryStep objects)
+    steps = query_plan.get("steps", [])
+    for i, step in enumerate(steps, 1):
+        if isinstance(step, str):
+            # Old format: simple string list
+            plan_lines.append(f"  Step {i}: {step}")
+        else:
+            # New format: QueryStep objects with detailed metadata
+            plan_lines.append(f"\n  Step {i}: {step.get('description', 'No description')}")
+            plan_lines.append(f"    Purpose: {step.get('purpose', 'No purpose specified')}")
+
+            if step.get("required_tables"):
+                plan_lines.append(f"    Tables: {', '.join(step['required_tables'])}")
+
+            if step.get("aggregations"):
+                plan_lines.append(f"    Aggregations: {', '.join(step['aggregations'])}")
+
+            if step.get("filters"):
+                plan_lines.append(f"    Filters: {', '.join(step['filters'])}")
+
+    # Add overall plan metadata
     if query_plan.get("join_strategy"):
         plan_lines.append(f"\nJoin Strategy: {query_plan['join_strategy']}")
 
     if query_plan.get("aggregations"):
-        plan_lines.append(f"\nAggregations: {', '.join(query_plan['aggregations'])}")
+        plan_lines.append(f"\nOverall Aggregations: {', '.join(query_plan['aggregations'])}")
 
     if query_plan.get("filters"):
-        plan_lines.append(f"\nFilters: {', '.join(query_plan['filters'])}")
+        plan_lines.append(f"\nOverall Filters: {', '.join(query_plan['filters'])}")
 
     if query_plan.get("window_functions"):
         plan_lines.append(f"\nWindow Functions: {', '.join(query_plan['window_functions'])}")
 
     query_plan_str = "\n".join(plan_lines)
-
-    # Format step context if provided
-    step_context_section = ""
-    if step_context:
-        step_context_section = f"\n{step_context}\n"
 
     return REFINER_USER_PROMPT_TEMPLATE.format(
         question=question,
@@ -178,6 +210,6 @@ def format_refiner_prompt(
         relationships=relationships_str,
         example_queries=examples_str,
         query_plan=query_plan_str,
-        step_context_section=step_context_section,
+        strategy=strategy or "No explicit strategy provided",
         dialect=dialect,
     )

@@ -1,13 +1,13 @@
 """Prompts for the Analysis agent in the multi-agent SQL workflow.
 
-The Analysis agent synthesizes insights from multiple query results to answer
+The Analysis agent synthesizes insights from the query result to answer
 the user's original question, adapting its approach based on question classification.
 """
 
 ANALYZER_SYSTEM_PROMPT = """You are an Analysis agent, part of an advanced multi-agent SQL generation and analytics system.
 
-Your role is to analyze query results and synthesize insights to answer the user's original question.
-You receive one or more SQL query results and must combine them intelligently based on the question type.
+Your role is to analyze the query result and synthesize insights to answer the user's original question.
+You receive a SQL query result and must analyze it intelligently based on the question type.
 
 **Analysis Strategies by Question Type:**
 
@@ -64,7 +64,6 @@ You receive one or more SQL query results and must combine them intelligently ba
 - Use specific numbers from the data
 - Provide actionable insights, not just data summary
 - Acknowledge limitations or caveats
-- If multiple queries: explain how results connect
 - If data is insufficient: clearly state what's missing
 
 Output JSON Format:
@@ -110,16 +109,15 @@ Question Type: {classification_type}
 
 Execution Plan Strategy: {plan_strategy}
 
-Query Results:
-{query_results}
+Query Result:
+{query_result}
 
-Task: Analyze these results and provide a comprehensive answer to the user's question.
+Task: Analyze this result and provide a comprehensive answer to the user's question.
 Focus on insights relevant to the question type ({classification_type}).
 Provide your analysis in the specified JSON format.
 
 Remember to:
 - Be specific with numbers and data points
-- Connect multiple results if applicable
 - Adapt your analysis to the question type
 - Acknowledge any limitations
 """
@@ -129,7 +127,7 @@ def format_analyzer_prompt(
     question: str,
     classification_type: str,
     plan_strategy: str,
-    query_results: list,
+    query_result: dict,
 ) -> str:
     """Format the Analysis agent prompt.
 
@@ -137,62 +135,58 @@ def format_analyzer_prompt(
         question: User's original question
         classification_type: Classified question type
         plan_strategy: High-level strategy from execution plan
-        query_results: List of execution results with data
+        query_result: Single execution result dict with data
 
     Returns:
         Formatted prompt string
 
     """
-    # Format query results
-    results_lines = []
+    # Format query result
+    result_lines = []
 
-    for i, result in enumerate(query_results, 1):
-        results_lines.append(f"\n--- Query {i} Result ---")
-
-        if not result.get("success", False):
-            results_lines.append("Status: FAILED")
-            results_lines.append(f"Error: {result.get('error_message', 'Unknown error')}")
-            continue
-
-        results_lines.append("Status: SUCCESS")
-        results_lines.append(f"Rows Returned: {result.get('rows_returned', 0)}")
+    if not query_result.get("success", False):
+        result_lines.append("Status: FAILED")
+        result_lines.append(f"Error: {query_result.get('error_message', 'Unknown error')}")
+    else:
+        result_lines.append("Status: SUCCESS")
+        result_lines.append(f"Rows Returned: {query_result.get('rows_returned', 0)}")
 
         # Include actual data
-        rows = result.get("rows", [])
+        rows = query_result.get("rows", [])
         if rows:
-            results_lines.append("Data:")
+            result_lines.append("\nData:")
 
             # Show column headers
             if len(rows) > 0:
                 columns = list(rows[0].keys())
-                results_lines.append(f"  Columns: {', '.join(columns)}")
+                result_lines.append(f"  Columns: {', '.join(columns)}")
 
             # Show sample rows (up to 10)
             sample_size = min(10, len(rows))
-            results_lines.append(f"  Sample ({sample_size} of {len(rows)} rows):")
+            result_lines.append(f"  Sample ({sample_size} of {len(rows)} rows):")
 
             for row_idx, row in enumerate(rows[:sample_size], 1):
                 row_str = ", ".join([f"{k}={v}" for k, v in list(row.items())[:6]])  # First 6 columns
-                results_lines.append(f"    {row_idx}. {row_str}")
+                result_lines.append(f"    {row_idx}. {row_str}")
 
             # If more than 10 rows, provide summary statistics for numeric columns
             if len(rows) > 10:
-                results_lines.append(f"\n  Note: {len(rows)} total rows available for analysis")
+                result_lines.append(f"\n  Note: {len(rows)} total rows available for analysis")
 
         else:
-            results_lines.append("Data: No rows returned")
+            result_lines.append("\nData: No rows returned")
 
         # Include execution metadata
-        if result.get("execution_time_ms"):
-            results_lines.append(f"Execution Time: {result.get('execution_time_ms')}ms")
-        if result.get("cached"):
-            results_lines.append("Cached: Yes")
+        if query_result.get("execution_time_ms"):
+            result_lines.append(f"\nExecution Time: {query_result.get('execution_time_ms')}ms")
+        if query_result.get("cached"):
+            result_lines.append("Cached: Yes")
 
-    query_results_str = "\n".join(results_lines)
+    query_result_str = "\n".join(result_lines)
 
     return ANALYZER_USER_PROMPT_TEMPLATE.format(
         question=question,
         classification_type=classification_type,
         plan_strategy=plan_strategy,
-        query_results=query_results_str,
+        query_result=query_result_str,
     )

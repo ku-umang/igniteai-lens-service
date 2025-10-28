@@ -4,17 +4,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from opentelemetry import trace
 
-from core.agents.sql.state import ChatMessage
+from core.agents.state import ChatMessage
 from core.api.v1.schemas.agent import (
     AgentResponse,
     AgentRunRequest,
 )
-from core.dependencies.agent import AgentServiceDep
-from core.dependencies.message import MessageServiceDep
-from core.dependencies.session import get_session_service, verify_session_ownership_helper
+from core.dependencies import (
+    AgentServiceDep,
+    MessageServiceDep,
+    SessionServiceDep,
+    verify_session_ownership_helper,
+)
 from core.logging import get_logger
 from core.security.auth import get_current_tenant_id, get_current_user_id
-from core.services.session.session_service import SessionService
 
 logger = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -23,23 +25,23 @@ router = APIRouter(prefix="/agent", tags=["Agent"])
 
 
 @router.post(
-    "/chat",
+    "/run",
+    summary="Run data analyst agent",
+    description="Run data analyst agent to analyze data and answer questions",
     response_model=AgentResponse,
-    summary="Run workflow with the agent",
-    description="Run workflow with the agent",
 )
-async def chat(
+async def run(
     request: AgentRunRequest,
     tenant_id: Annotated[UUID, Depends(get_current_tenant_id)],
     user_id: Annotated[UUID, Depends(get_current_user_id)],
-    session_service: Annotated[SessionService, Depends(get_session_service)],
+    session_service: SessionServiceDep,
     message_service: MessageServiceDep,
     agent_service: AgentServiceDep,
 ) -> AgentResponse:
-    """Run workflow with the agent.
+    """Run data analyst agent to analyze data and answer questions.
 
     Args:
-        request: Run workflow request
+        request: Run data analyst agent request
         tenant_id: Tenant identifier from auth
         user_id: User identifier from auth
         session_service: Session service instance
@@ -47,42 +49,39 @@ async def chat(
         agent_service: Agent service instance
 
     Returns:
-        Run workflow response
+        AgentResponse: Agent execution response with message ID, SQL, results, and analysis
 
     Raises:
-        HTTPException: If run workflow fails
+        HTTPException: If run data analyst agent fails
 
     """
-    # Validate and fetch session using existing helper
-    try:
-        session = await verify_session_ownership_helper(
-            session_id=request.session_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            session_service=session_service,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session not found or access denied: {str(e)}",
-        ) from e
-
     with tracer.start_as_current_span(
-        "api.agent.run_workflow",
+        "api.agent.run_data_analyst_agent",
         attributes={
             "tenant_id": str(tenant_id),
-            "datasource_id": str(session.datasource_id),
-            "session_id": str(session.id),
+            "session_id": str(request.session_id),
         },
     ):
+        # Validate and fetch session using existing helper
+        try:
+            session = await verify_session_ownership_helper(
+                session_id=request.session_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_service=session_service,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Session not found or access denied: {str(e)}",
+            ) from e
         try:
             logger.info(
-                "Run workflow requested",
+                "Run data analyst agent requested",
                 extra={
                     "tenant_id": str(tenant_id),
                     "datasource_id": str(session.datasource_id),
                     "session_id": str(session.id),
-                    "question_length": len(request.question),
                 },
             )
 
@@ -98,79 +97,44 @@ async def chat(
                 # Convert Message models to ChatMessage (reverse to get oldest first)
                 chat_history = [ChatMessage(question=msg.question, sql=msg.sql) for msg in reversed(messages)]
 
-            # Execute SQL using datasource from session
-            result = await agent_service.chat(
+            # Run agent workflow
+            agent_output = await agent_service.run(
                 question=request.question,
                 datasource_id=session.datasource_id,
                 tenant_id=tenant_id,
                 session_id=str(request.session_id),
                 chat_history=chat_history,
-                use_cache=request.use_cache,
-                timeout_seconds=request.timeout_seconds,
-                max_rows=request.max_rows,
             )
 
-            # Save chat interaction after successful execution
-            message_id = None
-            if result["success"]:
-                try:
-                    saved_message = await message_service.save_chat_interaction(
-                        session_id=request.session_id,
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        question=request.question,
-                        sql=result["sql"] if result["sql"] else None,
-                        visualization_spec=result.get("visualization_spec"),
-                    )
-                    message_id = saved_message.id
-                except Exception as msg_error:
-                    logger.warning(
-                        "Failed to save chat message",
-                        extra={"error": str(msg_error)},
-                    )
-
-            response = AgentResponse(
-                # Classification
-                question_type=result.get("question_type"),
-                classification_confidence=result.get("classification_confidence"),
-                # SQL and execution
-                sql=result["sql"],
-                all_queries=result.get("all_queries"),
-                data=result["data"],
-                all_results=result.get("all_results"),
-                rows_returned=result["rows_returned"],
-                num_queries_executed=result.get("num_queries_executed", 1),
-                # Analysis
-                analysis=result.get("analysis"),
-                insights=result.get("insights"),
-                answer=result.get("answer"),
-                # Metadata
-                execution_time_ms=result["execution_time_ms"],
-                cached=result["cached"],
-                complexity_score=result["complexity_score"],
-                # Visualization
-                visualization_spec=result.get("visualization_spec"),
-                # Status
-                success=result["success"],
-                error_message=result.get("error_message"),
-                message_id=message_id,
+            # Save message to database
+            message = await message_service.save_chat_interaction(
+                session_id=request.session_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                question=request.question,
+                sql=agent_output.sql,
+                visualization_spec=agent_output.visualization_spec,
             )
 
-            logger.info(
-                "Run workflow completed",
-                extra={
-                    "success": response.success,
-                    "rows_returned": response.rows_returned,
-                    "cached": response.cached,
-                    "message_saved": message_id is not None,
-                },
+            # Build and return response
+            return AgentResponse(
+                message_id=message.id,
+                question=request.question,
+                sql=agent_output.sql,
+                data=agent_output.data,
+                num_rows=agent_output.num_rows,
+                answer=agent_output.answer,
+                insights=agent_output.insights,
+                visualization_spec=agent_output.visualization_spec,
+                total_time_ms=agent_output.total_time_ms,
+                llm_calls=agent_output.llm_calls,
+                success=agent_output.success,
+                error_message=agent_output.error_message,
             )
-
-            return response
 
         except Exception as e:
             logger.error(
-                "Run workflow failed",
+                "Run data analyst agent failed",
                 extra={
                     "error": str(e),
                     "tenant_id": str(tenant_id),
@@ -178,5 +142,5 @@ async def chat(
             )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Run workflow failed: {str(e)}",
+                detail=f"Run data analyst agent failed: {str(e)}",
             ) from e
