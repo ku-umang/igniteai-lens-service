@@ -13,6 +13,7 @@ CONNECTOR_TO_DIALECT = {
     "postgresql": "postgres",
     "mysql": "mysql",
     "sqlite": "sqlite",
+    "duckdb": "duckdb",
     # Add more mappings as new connectors are supported
     # "oracle": "oracle",
     # "sqlserver": "tsql",

@@ -1,9 +1,3 @@
-"""Prompts for the Analysis agent in the multi-agent SQL workflow.
-
-The Analysis agent synthesizes insights from the query result to answer
-the user's original question, adapting its approach based on question classification.
-"""
-
 ANALYZER_SYSTEM_PROMPT = """You are an Analysis agent, part of an advanced multi-agent SQL generation and analytics system.
 
 Your role is to analyze the query result and synthesize insights to answer the user's original question.

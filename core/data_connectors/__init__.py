@@ -1,6 +1,7 @@
 """Data connectors module for connecting to various data sources."""
 
 from core.data_connectors.base import BaseConnector
+from core.data_connectors.duckdb import DuckDBConnector
 from core.data_connectors.factory import (
     ConnectorRegistry,
     create_connector,
@@ -27,6 +28,7 @@ __all__ = [
     "PostgreSQLConnector",
     "MySQLConnector",
     "SQLiteConnector",
+    "DuckDBConnector",
     # Factory functions
     "create_connector",
     "create_connector_from_dict",

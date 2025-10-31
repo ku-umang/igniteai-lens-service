@@ -4,6 +4,7 @@ from typing import Any, Type
 from uuid import UUID
 
 from core.data_connectors.base import BaseConnector
+from core.data_connectors.duckdb import DuckDBConnector
 from core.data_connectors.mysql import MySQLConnector
 from core.data_connectors.postgresql import PostgreSQLConnector
 from core.data_connectors.sqlite import SQLiteConnector
@@ -32,6 +33,7 @@ class ConnectorRegistry:
         self.register(PostgreSQLConnector.CONNECTOR_KEY, PostgreSQLConnector)
         self.register(MySQLConnector.CONNECTOR_KEY, MySQLConnector)
         self.register(SQLiteConnector.CONNECTOR_KEY, SQLiteConnector)
+        self.register(DuckDBConnector.CONNECTOR_KEY, DuckDBConnector)
 
         logger.info(
             "Registered default connectors",
@@ -186,7 +188,7 @@ def create_connector(
         connector = connector_class(  # type: ignore[call-arg]
             datasource_id=datasource.id,
             tenant_id=datasource.tenant_id,
-            config=datasource.config,
+            config=datasource.config_json,
             credentials=datasource.credentials,
             pool_config=pool_config,
         )

@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     TRACE_SAMPLING_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # Prometheus
-    METRICS_PORT: int = Field(default=8003)
+    METRICS_PORT: int = Field(default=9002)
     ENABLE_METRICS: bool = Field(default=True)
 
     # Security Headers

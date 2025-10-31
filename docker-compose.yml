@@ -20,8 +20,8 @@ services:
     container_name: ignitelens-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"  # Application port
-      - "8001:8001"  # Metrics port
+      - "8002:8002"  # Application port
+      - "9002:9002"  # Metrics port
     environment:
       # Application settings
       APP_NAME: "IgniteLens Backend Services"
@@ -31,7 +31,7 @@ services:
 
       # Server configuration
       HOST: "0.0.0.0"
-      PORT: "8000"
+      PORT: "8002"
 
       # Database configuration - use Docker service names
       DATABASE_URL: "postgresql+asyncpg://ignitelens_user:ignitelens_password@postgres:5432/ignitelens"
@@ -58,7 +58,7 @@ services:
       TRACE_SAMPLING_RATE: "1.0"
 
       # Prometheus metrics
-      METRICS_PORT: "8001"
+      METRICS_PORT: "9002"
       ENABLE_METRICS: "true"
 
     networks:
@@ -78,4 +78,5 @@ services:
 # =============================================================================
 networks:
   aipal-platform-network:
-    external: true  # Use existing external network shared across services
+    name: aipal-platform-network
+    external: true

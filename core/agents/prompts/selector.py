@@ -1,10 +1,3 @@
-"""Prompts for the Selector agent in MAC-SQL workflow.
-
-The Selector agent is responsible for analyzing the user's question
-and selecting the minimal set of tables and columns needed from
-the retrieved schema metadata.
-"""
-
 SELECTOR_SYSTEM_PROMPT = """You are a Schema Selector agent, part of a multi-agent SQL generation system.
 
 Your role is to analyze the user's natural language question and select the MINIMAL set of tables

@@ -1,9 +1,3 @@
-"""Prompts for the Optimizer agent in MAC-SQL workflow.
-
-The Optimizer agent is responsible for rewriting the user's question
-using conversation history to provide better context for schema retrieval.
-"""
-
 OPTIMIZER_SYSTEM_PROMPT = """You are a Question Optimizer agent, part of a multi-agent SQL generation system.
 
 Your role is to analyze the user's current question in the context of their recent conversation history

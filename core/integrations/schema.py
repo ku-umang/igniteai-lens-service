@@ -26,7 +26,7 @@ class DataSourceResponse(BaseModel):
     connector_key: str
     connector_version: str
     kind: ConnectorKind
-    config: Dict[str, Any] = Field(
+    config_json: Dict[str, Any] = Field(
         default_factory=dict,
         description="Public configuration (non-sensitive fields only)",
     )

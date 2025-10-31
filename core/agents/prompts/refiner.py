@@ -1,9 +1,3 @@
-"""Prompts for the Refiner agent in MAC-SQL workflow.
-
-The Refiner agent takes the logical query plan and converts it into
-executable, optimized SQL code.
-"""
-
 REFINER_SYSTEM_PROMPT = """You are a SQL Refiner agent, part of a multi-agent SQL generation system.
 
 Your role is to convert the logical query plan into a SINGLE comprehensive, executable SQL query.

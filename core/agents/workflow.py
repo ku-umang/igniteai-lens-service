@@ -181,6 +181,7 @@ class AgentWorkflow:
                 raise Exception("No SQL generated")
 
             # Validate SQL
+            print(state.generated_sql.sql, "!!!!!!!!!!!!!")
             validator = get_sql_validator(dialect=state.generated_sql.dialect)
             validation_result = validator.validate(
                 sql=state.generated_sql.sql,

@@ -1,9 +1,3 @@
-"""Prompts for the Classifier agent in the multi-agent SQL workflow.
-
-The Classifier agent is responsible for categorizing user questions into
-analytical types to guide the planning and execution strategy.
-"""
-
 CLASSIFIER_SYSTEM_PROMPT = """You are a Question Classifier agent, part of a multi-agent SQL generation and analytics system.
 
 Your role is to analyze the user's question and classify it into ONE of the following analytical types.
