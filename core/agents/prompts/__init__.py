@@ -1,10 +1,5 @@
 """Prompts for MAC-SQL agents."""
 
-from core.agents.prompts.classifier import (
-    CLASSIFIER_SYSTEM_PROMPT,
-    CLASSIFIER_USER_PROMPT_TEMPLATE,
-    format_classifier_prompt,
-)
 from core.agents.prompts.optimizer import (
     OPTIMIZER_SYSTEM_PROMPT,
     OPTIMIZER_USER_PROMPT_TEMPLATE,
@@ -23,9 +18,6 @@ from core.agents.prompts.selector import (
 )
 
 __all__ = [
-    "CLASSIFIER_SYSTEM_PROMPT",
-    "CLASSIFIER_USER_PROMPT_TEMPLATE",
-    "format_classifier_prompt",
     "PLANNER_SYSTEM_PROMPT",
     "PLANNER_USER_PROMPT_TEMPLATE",
     "format_planner_prompt",

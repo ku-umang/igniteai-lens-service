@@ -97,15 +97,28 @@ class QueryStep(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
-    """Multi-step execution plan from Planner agent.
+    """Multi-step logical execution plan from Planner agent.
 
-    Note: The plan is now used as structured reasoning context for generating a single SQL query.
-    The steps represent the logical breakdown of the problem, but don't map to separate SQL executions.
+    The plan represents a natural, logical breakdown of how to answer the user's question.
+    Each step describes a logical operation in the analysis pipeline (e.g., retrieve data,
+    aggregate, calculate, compare).
+
+    IMPORTANT: Steps are LOGICAL reasoning steps, NOT separate SQL queries. The Refiner agent
+    uses this plan as structured guidance to generate a SINGLE comprehensive SQL query that
+    implements all steps using CTEs, subqueries, window functions, and other advanced SQL features.
+
+    Think of steps as a logical decomposition that helps:
+    1. Make the reasoning process transparent and understandable
+    2. Guide the Refiner in generating well-structured SQL
+    3. Provide context for the Analyzer to interpret results
+
+    Steps do NOT map to separate SQL executions - they map to SQL constructs like CTEs within
+    a single query.
     """
 
-    steps: List[QueryStep] = Field(default_factory=list, description="Ordered list of query steps (used as reasoning context)")
-    current_step_index: int = Field(default=0, description="[DEPRECATED] No longer used in single-SQL workflow")
-    is_complete: bool = Field(default=False, description="[DEPRECATED] No longer used in single-SQL workflow")
+    steps: List[QueryStep] = Field(
+        default_factory=list, description="Ordered list of logical reasoning steps that guide single SQL generation"
+    )
     requires_iteration: bool = Field(default=False, description="Whether more steps may be added based on results")
     reasoning: str = Field(default="", description="Overall planning reasoning")
     strategy: str = Field(default="", description="High-level strategy for answering the question")
@@ -161,9 +174,6 @@ class AgentState(BaseModel):
         default=None,
         description="Reasoning from question optimization",
     )
-
-    # Question Classification (Classifier Agent)
-    classification: Optional[ClassificationResult] = Field(default=None, description="Question classification result")
 
     # Schema Selection (Selector Agent) - may be populated multiple times for multi-query plans
     schema_context: Optional[SchemaContext] = Field(default=None, description="Selected schema context")
@@ -245,7 +255,6 @@ class AgentOutput(BaseModel):
     visualization_spec: Optional[Dict[str, Any]] = Field(default=None, description="Chart visualization specification")
 
     # Reasoning
-    classification_reasoning: Optional[str] = Field(default=None, description="Classifier agent reasoning")
     schema_selection_reasoning: Optional[str] = Field(default=None, description="Selector agent reasoning")
     planning_reasoning: Optional[str] = Field(default=None, description="Planner agent reasoning")
     analysis_reasoning: Optional[str] = Field(default=None, description="Analysis agent reasoning")

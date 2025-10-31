@@ -22,9 +22,9 @@ class AnalysisAgent:
 
     This agent:
     1. Receives the single query execution result
-    2. Analyzes the data based on question classification
-    3. Synthesizes insights and generates a comprehensive answer
-    4. Provides supporting evidence and recommendations
+    2. Analyzes the data and generates a comprehensive answer
+    3. Synthesizes insights and provides supporting evidence
+    4. Provides recommendations
     5. Acknowledges limitations and confidence level
     """
 
@@ -46,7 +46,6 @@ class AnalysisAgent:
             "analysis_agent.analyze_results",
             attributes={
                 "question": state.optimized_question or state.user_question,
-                "classification": state.classification.question_type.value if state.classification else "none",
                 "has_result": state.execution_result is not None,
             },
         ) as span:
@@ -54,9 +53,6 @@ class AnalysisAgent:
 
             try:
                 question_to_use = state.optimized_question or state.user_question
-
-                if not state.classification:
-                    raise ValueError("Classification not available")
 
                 if not state.execution_result:
                     raise ValueError("No execution result available for analysis")
@@ -80,7 +76,6 @@ class AnalysisAgent:
                 # Use LLM to analyze result
                 analysis_dict = await self._llm_analyze_results(
                     question=question_to_use,
-                    classification_type=state.classification.question_type.value,
                     plan_strategy=plan_strategy,
                     query_result=result_for_analysis,
                 )
@@ -145,7 +140,6 @@ class AnalysisAgent:
     async def _llm_analyze_results(
         self,
         question: str,
-        classification_type: str,
         plan_strategy: str,
         query_result: dict,
     ) -> Dict[str, Any]:
@@ -153,7 +147,6 @@ class AnalysisAgent:
 
         Args:
             question: User's original question
-            classification_type: Classified question type
             plan_strategy: High-level strategy from execution plan
             query_result: Single execution result dict
 
@@ -164,7 +157,6 @@ class AnalysisAgent:
         # Format the prompt
         user_prompt = format_analyzer_prompt(
             question=question,
-            classification_type=classification_type,
             plan_strategy=plan_strategy,
             query_result=query_result,
         )

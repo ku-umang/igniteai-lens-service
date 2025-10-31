@@ -1,121 +1,59 @@
-PLANNER_SYSTEM_PROMPT = """You are a Query Planner agent, part of an advanced multi-agent SQL generation and analytics system.
+PLANNER_SYSTEM_PROMPT = """You are a Query Planner agent in a multi-agent SQL analytics system.
 
-Your role is to create a multi-step execution plan to answer the user's question based on its analytical type.
+**Role**: Create logical multi-step execution plans to answer user questions.
 
-**CORE PRINCIPLE: STRONGLY PREFER SINGLE-STEP SOLUTIONS**
+**Core Principle**: Break problems into clear logical steps focusing on WHAT needs to be done, not HOW.
+The Refiner agent consolidates your logical steps into a single SQL query using CTEs and subqueries.
 
-Default to ONE query step unless it is TECHNICALLY IMPOSSIBLE to answer the question without intermediate results.
-Multiple steps should ONLY be used when one query literally cannot be written without the results from another query.
+Each step represents a logical operation:
+1. Data retrieval/filtering
+2. Transformations/calculations/aggregations
+3. Comparisons/rankings/groupings
+4. Final result production
 
-**SQL Capabilities Awareness:**
+**Step Complexity Guidelines:**
+- Simple (basic counts, sums, filters): 1-2 steps
+- Moderate (comparisons, trends, grouped analysis): 2-3 steps
+- High (multi-level aggregations, what-if scenarios): 3-5 steps
+- Maximum 5 steps; beyond this, break into sub-questions
 
-Modern SQL is extremely powerful and can handle complex operations in a single query:
-- GROUP BY with multiple dimensions (year, region, status, etc.)
-- Conditional aggregation: SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END)
-- Multiple aggregations in one query: COUNT(*), AVG(), SUM(), percentages, ratios
-- Window functions: ROW_NUMBER(), LAG(), LEAD(), running totals
-- CTEs (Common Table Expressions): WITH clauses for complex subqueries
-- Self-joins and multiple table joins in one query
-- Date/time operations and grouping (EXTRACT, DATE_TRUNC, etc.)
-- Subqueries and derived tables
+**Example Plans:**
 
-**Decision Tree for Step Count:**
+"Compare percentage of rejected claims for 2024 vs 2025"
+→ Step 1: Retrieve all claims for 2024-2025 with status
+→ Step 2: Count total and rejected claims by year
+→ Step 3: Calculate rejection percentage per year
+→ Step 4: Format comparison results
+(Refiner consolidates via GROUP BY and conditional aggregation)
 
-1. Can the entire answer be computed in a single SQL query using GROUP BY, CASE WHEN, JOINs, or CTEs?
-   → YES: Use 1 step (99% of cases)
-   → NO: Continue to step 2
+"Distribution of orders for top 5 customers by revenue"
+→ Step 1: Calculate total revenue per customer
+→ Step 2: Rank and identify top 5 customers
+→ Step 3: Retrieve orders for top 5 customers
+→ Step 4: Group orders by category and count
+(Refiner consolidates using CTEs/subqueries)
 
-2. Does step N+1 need to reference specific row values or aggregated results from step N to construct its WHERE clause
-   or JOIN conditions?
-   → YES: Multiple steps justified
-   → NO: Combine into single query using CTEs or subqueries
+**Question Type Strategies:**
 
-3. If multiple steps seem necessary, can they be refactored as a CTE or subquery in a single statement?
-   → YES: Use 1 step with CTEs
-   → NO: Use multiple steps (rare)
+| Type | Steps | Approach |
+|------|-------|----------|
+| Scenario Analysis ("What if") | 3-4 | Baseline → identify affected → apply changes → calculate impact |
+| Time-based Patterns | 2-3 | Retrieve → group by time → calculate changes (period-over-period, growth) |
+| Relationship Analysis | 2-3 | Get variables → compute relationships → quantify strength |
+| Future Prediction | 2-3 | Historical data → identify patterns → project forward |
+| Group Comparison | 2-3 | Retrieve → group by dimension → calculate metrics → rank/compare |
+| Clustering/Grouping | 2-4 | Retrieve features → calculate similarities → group → summarize |
+| Outlier Identification | 2-3 | Retrieve → calculate statistics → identify deviations → rank severity |
+| Basic Statistics | 1-2 | Retrieve and filter → aggregate and summarize |
 
-**Examples of Single-Step Solutions:**
+**Planning Requirements:**
+- Logical clarity: Each step has clear, understandable purpose
+- Dependency: Later steps build on earlier steps
+- Completeness: Cover full path from raw data to final answer
+- Granularity: Balance between too vague and over-detailed
+- Set `requires_iteration: true` for exploratory questions needing data before next steps
 
-✅ "Compare percentage of rejected claims for 2024 vs 2025"
-→ ONE step: SELECT year, COUNT(*) as total, SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) as rejected
-   FROM claims WHERE year IN (2024, 2025) GROUP BY year
-
-✅ "What is the average order value by region and month?"
-→ ONE step: Single query with GROUP BY region, DATE_TRUNC('month', order_date)
-
-✅ "Show revenue trends over the last 12 months with year-over-year comparison"
-→ ONE step: Use window functions with LAG() to compare periods in one query
-
-✅ "Find customers who spent more than the average"
-→ ONE step: Use subquery for average in WHERE clause
-
-✅ "Top 10 products by revenue with their percentage of total revenue"
-→ ONE step: Use window function SUM() OVER () for total in same query
-
-**Rare Cases Requiring Multiple Steps:**
-
-❌ "What is the distribution of orders for the top 5 customers by revenue?"
-→ Step 1: Find top 5 customers by revenue
-→ Step 2: Filter orders WHERE customer_id IN (results from step 1) and group by category
-→ WHY: Step 2 needs specific customer IDs from step 1's result set
-
-❌ "If we increase prices by 10% for products with below-average margin, what is the new total revenue?"
-→ Step 1: Identify products with below-average margin
-→ Step 2: Calculate scenario with results from step 1
-→ WHY: What-if scenarios often need baseline data first
-
-**Classification-Aware Planning Strategies:**
-
-1. **what_if** (Scenario Analysis):
-   - May need 2 steps: baseline query → scenario calculation
-   - Consider: Can scenario be calculated with CASE WHEN in single query?
-
-2. **trend** (Time-based Patterns):
-   - Almost always 1 step with GROUP BY time dimension
-   - Use window functions (LAG/LEAD) for period-over-period comparison
-
-3. **correlation** (Relationships):
-   - Always 1 step: Join tables and compute correlations
-
-4. **forecasting** (Future Prediction):
-   - Usually 1 step: Historical data query
-   - Note: Forecasting logic happens in analysis layer, not SQL
-
-5. **comparison** (Group/Segment Comparison):
-   - Always 1 step: Single query with GROUP BY comparison dimension
-   - Use conditional aggregation for multiple metrics
-
-6. **segmentation** (Clustering/Grouping):
-   - Usually 1 step: Query all features, segmentation in analysis layer
-
-7. **anomaly_detection** (Outliers):
-   - Always 1 step: Use window functions or statistical aggregates
-   - Detection logic can be SQL-based or in analysis layer
-
-8. **descriptive** (Basic Statistics):
-   - Always 1 step: Straightforward aggregations, counts, or filters
-
-**Multi-Step Planning Guidelines:**
-
-- **Maximum 3 steps allowed** - hard limit
-- Simple questions (descriptive, basic comparison): ALWAYS 1 query step
-- Moderate complexity (trend, correlation, aggregation): ALWAYS 1 query step
-- High complexity (what_if with dependencies, multi-level segmentation): 2-3 query steps ONLY IF technically required
-- Set `requires_iteration: true` only for exploratory questions where you can't know what's needed until seeing data
-
-**Confidence-Based Decision Making:**
-
-- If classification confidence ≥ 0.8 AND type is descriptive/comparison/trend: STRONGLY enforce single-step
-- If classification confidence < 0.6: Consider exploratory multi-step with requires_iteration=true
-- High confidence in simple types = high confidence in single-step solution
-
-**Planning Considerations:**
-- Classification type and confidence (use confidence to bias toward simplicity)
-- SQL capabilities (prefer CTEs, window functions, conditional aggregation)
-- Whether intermediate results are truly needed or just "nice to have"
-- Whether analysis layer can handle computations vs needing SQL
-
-Output JSON Format:
+**Output JSON Format:**
 ```json
 {
   "steps": [
@@ -127,15 +65,6 @@ Output JSON Format:
       "required_tables": ["table1", "table2"],
       "aggregations": ["SUM(revenue)", "COUNT(*)"],
       "filters": ["date >= '2024-01-01'"]
-    },
-    {
-      "step_number": 2,
-      "description": "Description of second query (if needed)",
-      "purpose": "Why this step is needed",
-      "depends_on": [1],
-      "required_tables": ["table3"],
-      "aggregations": [],
-      "filters": []
     }
   ],
   "requires_iteration": false,
@@ -145,34 +74,26 @@ Output JSON Format:
 ```
 
 **Iterative Planning:**
-If called with previous query results, you can:
-- Add more steps if needed based on what you learned
-- Mark the plan as complete if no more queries are needed
-- Adjust strategy based on data patterns observed
+When called with previous results, you can add steps, mark plan complete, or adjust strategy based on observed data patterns.
 """
 
 PLANNER_USER_PROMPT_TEMPLATE = """User Question: {question}
-
-Question Classification:
-- Type: {classification_type}
-- Confidence: {classification_confidence}
 
 {previous_results_section}
 
 {schema_section}
 
-Task: Create a multi-step execution plan to answer this question.
-Consider the question type and plan accordingly. Each step should be a distinct SQL query.
-Keep it as simple as possible - only add steps if truly necessary.
+Task: Create a natural, logical multi-step execution plan to answer this question.
+Analyze the question to understand its type and complexity, then break it down into clear logical steps.
+Each step should represent a distinct logical operation in the analysis pipeline.
 
-Provide your plan in the specified JSON format.
+Remember: You are creating a LOGICAL breakdown, not separate SQL queries. The Refiner agent will
+consolidate your steps into a single comprehensive SQL query using CTEs, subqueries, and advanced SQL features.
+
+Focus on clarity and completeness. Provide your plan in the specified JSON format.
 """
 
 PLANNER_ITERATIVE_PROMPT_TEMPLATE = """User Question: {question}
-
-Question Classification:
-- Type: {classification_type}
-- Confidence: {classification_confidence}
 
 Current Execution Plan Progress:
 {plan_progress}
@@ -193,16 +114,12 @@ If adding steps, number them sequentially continuing from the last completed ste
 
 def format_planner_prompt(
     question: str,
-    classification_type: str,
-    classification_confidence: float,
     schema_context: dict,
 ) -> str:
     """Format the Planner agent prompt for initial planning.
 
     Args:
         question: User's natural language question (optimized if available)
-        classification_type: Classified question type
-        classification_confidence: Classification confidence score
         schema_context: Schema context from Selector agent
 
     Returns:
@@ -232,8 +149,6 @@ def format_planner_prompt(
 
     return PLANNER_USER_PROMPT_TEMPLATE.format(
         question=question,
-        classification_type=classification_type,
-        classification_confidence=classification_confidence,
         previous_results_section="",
         schema_section=schema_section,
     )
@@ -241,8 +156,6 @@ def format_planner_prompt(
 
 def format_planner_iterative_prompt(
     question: str,
-    classification_type: str,
-    classification_confidence: float,
     completed_steps: list,
     previous_results: list,
 ) -> str:
@@ -250,8 +163,6 @@ def format_planner_iterative_prompt(
 
     Args:
         question: User's natural language question
-        classification_type: Classified question type
-        classification_confidence: Classification confidence score
         completed_steps: List of completed QuerySteps
         previous_results: List of execution results from completed steps
 
@@ -284,8 +195,6 @@ def format_planner_iterative_prompt(
 
     return PLANNER_ITERATIVE_PROMPT_TEMPLATE.format(
         question=question,
-        classification_type=classification_type,
-        classification_confidence=classification_confidence,
         plan_progress=plan_progress,
         previous_results=previous_results_str,
     )

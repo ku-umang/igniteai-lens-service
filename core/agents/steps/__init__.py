@@ -1,5 +1,4 @@
 from .analyzer import AnalysisAgent
-from .classifier import ClassifierAgent
 from .optimizer import OptimizerAgent
 from .planner import PlannerAgent
 from .refiner import RefinerAgent
@@ -8,7 +7,6 @@ from .visualizer import VisualizationAgent
 
 __all__ = [
     "AnalysisAgent",
-    "ClassifierAgent",
     "OptimizerAgent",
     "PlannerAgent",
     "RefinerAgent",

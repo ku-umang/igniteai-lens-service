@@ -19,14 +19,18 @@ tracer = trace.get_tracer(__name__)
 
 
 class PlannerAgent:
-    """Planner agent for multi-step query planning in workflow.
+    """Planner agent for creating natural multi-step logical execution plans.
 
     This agent:
-    1. Analyzes the user's question and classification
-    2. Creates a multi-step execution plan with individual QuerySteps
-    3. Supports iterative planning - can be called multiple times
-    4. Decides when additional queries are needed based on previous results
-    5. Adapts strategy based on question type (what_if, trend, correlation, etc.)
+    1. Analyzes the user's question to understand its type and complexity
+    2. Creates a natural, logical multi-step breakdown (typically 2-5 steps)
+    3. Focuses on WHAT needs to be done, not HOW it will be implemented in SQL
+    4. Supports iterative planning - can be called multiple times
+    5. Decides when additional queries are needed based on previous results
+
+    IMPORTANT: The execution plan represents LOGICAL reasoning steps, NOT separate SQL queries.
+    The Refiner agent will consolidate all steps into a SINGLE comprehensive SQL query using
+    CTEs, subqueries, and advanced SQL features.
     """
 
     def __init__(self) -> None:
@@ -57,10 +61,6 @@ class PlannerAgent:
             try:
                 question_to_use = state.optimized_question or state.user_question
 
-                if not state.classification:
-                    logger.error("Classification not available", extra={"question": question_to_use})
-                    raise ValueError("Classification not available")
-
                 # Determine if this is initial or iterative planning
                 is_iterative = state.execution_plan is not None and state.execution_plan.requires_iteration
 
@@ -68,7 +68,6 @@ class PlannerAgent:
                     "Planner agent starting",
                     extra={
                         "question": question_to_use,
-                        "classification": state.classification.question_type.value,
                         "is_iterative": is_iterative,
                     },
                 )
@@ -77,7 +76,6 @@ class PlannerAgent:
                     # Iterative planning: update existing plan based on results
                     plan_dict = await self._llm_iterative_planning(
                         question=question_to_use,
-                        classification=state.classification,
                         execution_plan=state.execution_plan,  # type: ignore
                         execution_result=state.execution_result,
                     )
@@ -88,7 +86,6 @@ class PlannerAgent:
 
                     plan_dict = await self._llm_create_plan(
                         question=question_to_use,
-                        classification=state.classification,
                         schema_context=schema_info,
                     )
 
@@ -109,8 +106,6 @@ class PlannerAgent:
 
                 execution_plan = ExecutionPlan(
                     steps=query_steps,
-                    current_step_index=0,
-                    is_complete=len(query_steps) == 0,  # Empty plan means complete
                     requires_iteration=plan_dict.get("requires_iteration", False),
                     reasoning=plan_dict.get("reasoning", ""),
                     strategy=plan_dict.get("strategy", ""),
@@ -158,8 +153,6 @@ class PlannerAgent:
                             filters=[],
                         )
                     ],
-                    current_step_index=0,
-                    is_complete=False,
                     requires_iteration=False,
                     reasoning=f"Planning failed: {str(e)}. Using fallback single-step plan.",
                     strategy="Simple single-query fallback",
@@ -173,14 +166,12 @@ class PlannerAgent:
     async def _llm_create_plan(
         self,
         question: str,
-        classification: Any,
         schema_context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Use LLM to create initial execution plan.
 
         Args:
             question: User's question (optimized if available)
-            classification: ClassificationResult
             schema_context: schema context
 
         Returns:
@@ -190,8 +181,6 @@ class PlannerAgent:
         # Format the prompt
         user_prompt = format_planner_prompt(
             question=question,
-            classification_type=classification.question_type.value,
-            classification_confidence=classification.confidence,
             schema_context=schema_context,
         )
 
@@ -221,12 +210,24 @@ class PlannerAgent:
             if "steps" not in plan:
                 raise ValueError("Missing 'steps' in plan response")
 
-            # Apply validation and constraints
-            plan = self._validate_and_constrain_plan(
-                plan=plan,
-                classification=classification,
-                question=question,
-            )
+            # Soft limit: Recommend maximum 5 steps (log warning if exceeded)
+            steps = plan.get("steps", [])
+            if len(steps) > 5:
+                logger.warning(
+                    "Plan has more than 5 steps - consider breaking into sub-questions",
+                    extra={
+                        "question": question,
+                        "num_steps": len(steps),
+                    },
+                )
+            elif len(steps) > 3:
+                logger.info(
+                    "Plan has more than 3 steps - logical breakdown",
+                    extra={
+                        "question": question,
+                        "num_steps": len(steps),
+                    },
+                )
 
             return plan
 
@@ -256,7 +257,6 @@ class PlannerAgent:
     async def _llm_iterative_planning(
         self,
         question: str,
-        classification: Any,
         execution_plan: ExecutionPlan,
         execution_result: Optional[ExecutionResult],
     ) -> Dict[str, Any]:
@@ -264,7 +264,6 @@ class PlannerAgent:
 
         Args:
             question: User's question
-            classification: ClassificationResult
             execution_plan: Current execution plan
             execution_result: Single execution result from the generated SQL
 
@@ -302,8 +301,6 @@ class PlannerAgent:
         # Format the prompt
         user_prompt = format_planner_iterative_prompt(
             question=question,
-            classification_type=classification.question_type.value,
-            classification_confidence=classification.confidence,
             completed_steps=plan_steps,
             previous_results=[result_summary],
         )
@@ -341,91 +338,6 @@ class PlannerAgent:
                 "strategy": "Completing with current results",
                 "reasoning": f"Failed to parse iterative response. Marking plan complete. Error: {str(e)}",
             }
-
-    def _validate_and_constrain_plan(
-        self,
-        plan: Dict[str, Any],
-        classification: Any,
-        question: str,
-    ) -> Dict[str, Any]:
-        """Validate and constrain the execution plan based on confidence and complexity.
-
-        Args:
-            plan: Raw plan dict from LLM
-            classification: ClassificationResult with type and confidence
-            question: User's question for logging
-
-        Returns:
-            Validated and potentially modified plan dict
-
-        """
-        steps = plan.get("steps", [])
-        num_steps = len(steps)
-
-        # Hard limit: Maximum 3 steps
-        if num_steps > 3:
-            logger.warning(
-                "Plan exceeds maximum 3 steps, truncating",
-                extra={
-                    "question": question,
-                    "original_steps": num_steps,
-                    "classification": classification.question_type.value,
-                },
-            )
-            plan["steps"] = steps[:3]
-            plan["reasoning"] = f"{plan.get('reasoning', '')} [Note: Plan was truncated from {num_steps} to 3 steps]"
-            num_steps = 3
-
-        # Confidence-based single-step enforcement
-        # If high confidence (>= 0.8) and simple question type, strongly prefer single step
-        simple_types = ["descriptive", "comparison", "trend"]
-        is_simple_type = classification.question_type.value in simple_types
-        is_high_confidence = classification.confidence >= 0.8
-
-        if is_high_confidence and is_simple_type and num_steps > 1:
-            logger.warning(
-                "High-confidence simple query with multiple steps - consider simplifying",
-                extra={
-                    "question": question,
-                    "classification": classification.question_type.value,
-                    "confidence": classification.confidence,
-                    "num_steps": num_steps,
-                    "steps": [step.get("description") for step in steps],
-                },
-            )
-
-            # For very high confidence (>= 0.9) descriptive/comparison queries, force single step
-            if classification.confidence >= 0.9 and num_steps > 1:
-                logger.info(
-                    "Forcing single-step plan for very high confidence simple query",
-                    extra={
-                        "question": question,
-                        "classification": classification.question_type.value,
-                        "confidence": classification.confidence,
-                        "original_steps": num_steps,
-                    },
-                )
-
-                # Create simplified single-step plan
-                plan["steps"] = [
-                    {
-                        "step_number": 1,
-                        "description": f"Query to answer: {question}",
-                        "purpose": "Answer the user's question in a single query using SQL capabilities",
-                        "depends_on": [],
-                        "required_tables": list({table for step in steps for table in step.get("required_tables", [])}),
-                        "aggregations": list({agg for step in steps for agg in step.get("aggregations", [])}),
-                        "filters": list({filter_ for step in steps for filter_ in step.get("filters", [])}),
-                    }
-                ]
-                plan["strategy"] = "Single-step solution using SQL's GROUP BY, conditional aggregation, and JOINs"
-                plan["reasoning"] = (
-                    f"High-confidence {classification.question_type.value} query simplified to single step. "
-                    f"Original plan had {num_steps} steps but can be combined using modern SQL capabilities."
-                )
-                plan["requires_iteration"] = False
-
-        return plan
 
     def _extract_schema_info(self, schema_context: SchemaContext) -> Dict[str, Any]:
         """Extract schema info from schema context.

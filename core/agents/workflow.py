@@ -5,7 +5,7 @@ from langgraph.graph import END, StateGraph
 from opentelemetry import trace
 
 from core.agents.state import AgentInput, AgentOutput, AgentState, ExecutionResult
-from core.agents.steps import AnalysisAgent, ClassifierAgent, OptimizerAgent, PlannerAgent, RefinerAgent, SelectorAgent
+from core.agents.steps import AnalysisAgent, OptimizerAgent, PlannerAgent, RefinerAgent, SelectorAgent
 from core.integrations.platform_client import PlatformClient
 from core.logging import get_logger
 from core.services.agent.executor import SafeSQLExecutor
@@ -26,7 +26,6 @@ class AgentWorkflow:
     def __init__(self) -> None:
         """Initialize the Agent workflow."""
         self.optimizer = OptimizerAgent()
-        self.classifier = ClassifierAgent()
         self.planner = PlannerAgent()
         self.selector = SelectorAgent()
         self.refiner = RefinerAgent()
@@ -45,7 +44,6 @@ class AgentWorkflow:
 
         # Add nodes for each agent
         graph.add_node("optimizer", self._optimizer_node)
-        graph.add_node("classifier", self._classifier_node)
         graph.add_node("planner", self._planner_node)
         graph.add_node("selector", self._selector_node)
         graph.add_node("refiner", self._refiner_node)
@@ -57,8 +55,7 @@ class AgentWorkflow:
 
         # Define workflow edges
         graph.set_entry_point("optimizer")
-        graph.add_edge("optimizer", "classifier")
-        graph.add_edge("classifier", "selector")
+        graph.add_edge("optimizer", "selector")
         graph.add_edge("selector", "planner")
 
         # Main execution flow
@@ -105,18 +102,6 @@ class AgentWorkflow:
 
         """
         return await self.optimizer.optimize_question(state)
-
-    async def _classifier_node(self, state: AgentState) -> AgentState:
-        """Classifier agent node.
-
-        Args:
-            state: Current workflow state
-
-        Returns:
-            Updated state with classification populated
-
-        """
-        return await self.classifier.classify_question(state)
 
     async def _selector_node(self, state: AgentState) -> AgentState:
         """Selector agent node.
